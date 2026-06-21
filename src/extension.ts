@@ -29,21 +29,28 @@ export function activate(context: vscode.ExtensionContext) {
 }
 
 /**
- * 裏側（シャドウ領域）で自動コミットを行う関数
+ * 裏側（シャドウ領域）で自動コミットを行う関数（Windowsセキュリティ対応版）
  */
 async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
-    // 1. シャドウ（隠し）リポジトリの配置場所を決める（.gitの中の隠しフォルダ）
-    const shadowRepoPath = path.join(mainRepoPath, '.git', 'micro_shadow');
+    // 1. シャドウ（隠し）リポジトリの配置場所（.git の外の独立した隠しフォルダにする）
+    const shadowRepoPath = path.join(mainRepoPath, '.microgit_shadow');
     const relativeFilePath = path.relative(mainRepoPath, savedFilePath);
     const shadowFilePath = path.join(shadowRepoPath, relativeFilePath);
 
-    // 2. 初回のみ：シャドウリポジトリの初期化（ローカルクローン）
+    // 2. 初回のみ：シャドウリポジトリの初期化 (git init を直接叩く)
     if (!fs.existsSync(shadowRepoPath)) {
-        // メインのリポジトリを、作業コピーを持たない形で別フォルダにクローン
-        execSync(`git clone "${mainRepoPath}" "${shadowRepoPath}"`, { stdio: 'ignore' });
+        fs.mkdirSync(shadowRepoPath, { recursive: true });
         
-        // マイクロ履歴専用の「隠しブランチ（micro-history）」を作成
-        execSync(`git checkout -b micro-history`, { cwd: shadowRepoPath, stdio: 'ignore' });
+        // 新規にGitリポジトリを初期化し、初期コミットのブランチ名を micro-history にする
+        execSync(`git init -b micro-history`, { cwd: shadowRepoPath, stdio: 'ignore' });
+        
+        // .microgit_shadow フォルダ自体が本家Gitの管理対象に入らないように、本家の.gitignoreに追記
+        const gitignorePath = path.join(mainRepoPath, '.gitignore');
+        try {
+            fs.appendFileSync(gitignorePath, '\n.microgit_shadow/\n');
+        } catch (e) {
+            // .gitignoreがなくても処理は続行
+        }
     }
 
     // 3. 保存されたファイルを、シャドウリポジトリの対応する場所に上書きコピー
@@ -54,19 +61,17 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
     fs.copyFileSync(savedFilePath, shadowFilePath);
 
     // 4. シャドウリポジトリ側で Git Add & Commit を実行
-    // 開発者の名前や設定に影響を与えないよう、一時的なユーザー名でコミット
     const timestamp = new Date().toISOString();
     const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
 
-    execSync(`git add "${relativeFilePath}"`, { cwd: shadowRepoPath });
-    
-    // 差分がない場合は例外を吐くので、try-catchで囲むか、allow-emptyフラグをつける
     try {
+        execSync(`git add "${relativeFilePath}"`, { cwd: shadowRepoPath });
+        // Windowsの環境変数制約を回避するため、設定を直接インラインで渡してコミット
         execSync(`git -c user.name="MicroBot" -c user.email="bot@micro.internal" commit -m "${commitMessage}"`, { cwd: shadowRepoPath });
         vscode.window.setStatusBarMessage(`[MicroGit] 自動保存コミット完了: ${timestamp}`, 3000);
     } catch (e) {
-        // 変更が本当になかった場合はここに来るので、無視してOK
-        console.log('変更がないため、マイクロコミットをスキップしました。');
+        // 変更がない場合はここに来るのでスルー
+        console.log('変更がないためスキップしました。');
     }
 }
 
