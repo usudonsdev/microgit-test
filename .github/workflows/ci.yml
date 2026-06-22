@@ -1,0 +1,43 @@
+name: Continuous Integration
+
+on:
+  push:
+    branches:
+      - master   # 💡 masterブランチにpush（マージ）されたとき
+  pull_request:
+    branches:
+      - master   # 💡 masterブランチへのプルリクエストが作られたとき
+
+jobs:
+  test:
+    name: Run VS Code Extension Tests
+    runs-on: ubuntu-latest # コストが安く高速なLinux環境を使用
+
+    steps:
+      # 1. ソースコードのチェックアウト
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # 2. Node.js 環境のセットアップ
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20 # 拡張機能がサポートするNode.jsのバージョン
+          cache: 'npm'
+
+      # 3. 依存パッケージのインストール
+      - name: Install Dependencies
+        run: npm ci
+
+      # 4. リンターとコンパイルの実行 (package.json の pretest で走る内容)
+      - name: Compile and Lint
+        run: |
+          npm run compile
+          npm run lint
+
+      # 5. 【超重要】仮想画面（Xvfb）を使ってテストを実行
+      # Linuxサーバーには画面がないため、xvfb-run を噛ませてVS Code（GUIアプリ）を騙して起動します
+      - name: Run Tests
+        run: xvfb-run $CHROME_HEADLESS_FLAGS npm test
+        env:
+          CXXFLAGS: -Wno-ignored-attributes
