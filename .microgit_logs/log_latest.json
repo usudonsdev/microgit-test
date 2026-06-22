@@ -1,0 +1,22 @@
+[
+  {
+    "timestamp": "2026-06-22T04:31:59.415Z",
+    "level": "INFO",
+    "message": "MicroGit 拡張機能が完全に目覚めました！"
+  },
+  {
+    "timestamp": "2026-06-22T04:32:00.580Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: /Users/usudon/Documents/GitHub/microgit-test/test_dummy.py"
+  },
+  {
+    "timestamp": "2026-06-22T04:32:00.603Z",
+    "level": "INFO",
+    "message": "シャドウリポジトリを初期化しました: /Users/usudon/Documents/GitHub/microgit-test/.microgit_shadow"
+  },
+  {
+    "timestamp": "2026-06-22T04:32:00.637Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: test_dummy.py"
+  }
+]

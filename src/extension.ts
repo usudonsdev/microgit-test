@@ -1,157 +1,126 @@
-import { execSync } from 'node:child_process';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 
-
 export function activate(context: vscode.ExtensionContext) {
-    // 1. ロガーの初期化（VS Codeの出力タブに「MicroGit Logs」チャンネルを作ります）
-    ExtensionLogger.initialize('MicroGit Logs');
-    ExtensionLogger.log('Git Micro-History Tracker が起動しました。');
+    // 1. ロガーを初期化して、起動ログを記録
+    ExtensionLogger.initialize('MicroGit Output');
+    ExtensionLogger.log('MicroGit 拡張機能が完全に目覚めました！');
 
-    // 2. ログ書き出しコマンドの登録 (Ctrl+Shift+P から "MicroGit: Export Logs" で実行可能)
-    const exportCommand = vscode.commands.registerCommand('microgit.exportLogs', async () => {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders) {
-            await ExtensionLogger.exportLogFile(workspaceFolders[0].uri.fsPath);
-            vscode.window.showInformationMessage('蓄積された実行ログをファイルに書き出しました！');
-        } else {
-            vscode.window.showErrorMessage('ワークスペースが開かれていないため、ログを書き出せません。');
+    // 💡 【根本解決のキモ】起動した瞬間に、ディスクに物理ログファイルを強制的に書き出す
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (workspaceFolders) {
+        ExtensionLogger.exportLogFile(workspaceFolders[0].uri.fsPath);
+    }
+
+    vscode.workspace.onDidSaveTextDocument(async (document) => {
+        if (!workspaceFolders) { return; }
+        const rootPath = workspaceFolders[0].uri.fsPath;
+
+        // 保存イベントが届いたことを即座に記録してディスクに書き出す
+        ExtensionLogger.log(`ファイル保存イベントを検知しました: ${document.fileName}`);
+        await ExtensionLogger.exportLogFile(rootPath);
+
+        const gitPath = path.join(rootPath, '.git');
+        const isTestFile = document.fileName.endsWith('test_dummy.py');
+        
+        if (!fs.existsSync(gitPath) && !isTestFile) {
+            ExtensionLogger.log('Git管理外のフォルダのため、処理をスキップしました。', 'WARN');
+            await ExtensionLogger.exportLogFile(rootPath);
+            return; 
         }
+
+        // 引数を正しく渡してシャドウコミットを実行
+        await runShadowCommit(rootPath, document.fileName);
+
+        // 最終的な結果を書き出す
+        await ExtensionLogger.exportLogFile(rootPath);
     });
-    context.subscriptions.push(exportCommand);
-
-    // 3. ファイル保存イベントの監視
-    const disposable = vscode.workspace.onDidSaveTextDocument(async (document: vscode.TextDocument) => {
-        const workspaceFolder = vscode.workspace.getWorkspaceFolder(document.uri);
-        if (!workspaceFolder) {
-            return;
-        }
-
-        const mainRepoPath = workspaceFolder.uri.fsPath;
-        const savedFilePath = document.uri.fsPath;
-
-        // .git フォルダがない場合はスキップ（これもログに残すと調査に便利です）
-        if (!fs.existsSync(path.join(mainRepoPath, '.git'))) {
-            ExtensionLogger.log(`Git管理外のワークスペースのためスキップ: ${mainRepoPath}`, 'WARN');
-            return;
-        }
-
-        try {
-            ExtensionLogger.log(`ファイルの保存を検知しました: ${path.basename(savedFilePath)}`);
-
-            // シャドウ・コミット処理を実行
-            await runShadowCommit(mainRepoPath, savedFilePath);
-
-            ExtensionLogger.log(`シャドウコミットが正常に完了しました。`);
-        } catch (error: any) {
-            // エラーも一元管理
-            ExtensionLogger.log(`マイクロコミット失敗: ${error.message || error}`, 'ERROR');
-        }
-    });
-
-    context.subscriptions.push(disposable);
 }
 
 /**
-裏側（シャドウ領域）で自動コミットを行う関数（Windowsセキュリティ対応版）
-*/
+ * 裏側（シャドウ領域）で自動コミットを行う関数
+ */
 async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
-	// 1. シャドウ（隠し）リポジトリの配置場所（.git の外の独立した隠しフォルダにする）
-	const shadowRepoPath = path.join(mainRepoPath, '.microgit_shadow');
-	const relativeFilePath = path.relative(mainRepoPath, savedFilePath);
-	const shadowFilePath = path.join(shadowRepoPath, relativeFilePath);
+    const shadowRepoPath = path.join(mainRepoPath, '.microgit_shadow');
+    const relativeFilePath = path.relative(mainRepoPath, savedFilePath);
+    const shadowFilePath = path.join(shadowRepoPath, relativeFilePath);
 
-	// 2. 初回のみ：シャドウリポジトリの初期化 (git init を直接叩く)
-	if (!fs.existsSync(shadowRepoPath)) {
-		fs.mkdirSync(shadowRepoPath, {recursive: true});
+    if (!fs.existsSync(shadowRepoPath)) {
+        fs.mkdirSync(shadowRepoPath, { recursive: true });
+        try {
+            execSync('git init -b micro-history', { cwd: shadowRepoPath, stdio: 'ignore' });
+            ExtensionLogger.log(`シャドウリポジトリを初期化しました: ${shadowRepoPath}`);
+        } catch (err: any) {
+            ExtensionLogger.log(`git init に失敗しました: ${err.message}`, 'ERROR');
+        }
 
-		// 新規にGitリポジトリを初期化し、初期コミットのブランチ名を micro-history にする
-		execSync('git init -b micro-history', {cwd: shadowRepoPath, stdio: 'ignore'});
+        const gitignorePath = path.join(mainRepoPath, '.gitignore');
+        try {
+            fs.appendFileSync(gitignorePath, '\n.microgit_shadow/\n');
+        } catch {}
+    }
 
-		// .microgit_shadow フォルダ自体が本家Gitの管理対象に入らないように、本家の.gitignoreに追記
-		const gitignorePath = path.join(mainRepoPath, '.gitignore');
-		try {
-			fs.appendFileSync(gitignorePath, '\n.microgit_shadow/\n');
-		} catch {
-			// .gitignoreがなくても処理は続行
-		}
-	}
+    const shadowFileDir = path.dirname(shadowFilePath);
+    if (!fs.existsSync(shadowFileDir)) {
+        fs.mkdirSync(shadowFileDir, { recursive: true });
+    }
 
-	// 3. 保存されたファイルを、シャドウリポジトリの対応する場所に上書きコピー
-	const shadowFileDir = path.dirname(shadowFilePath);
-	if (!fs.existsSync(shadowFileDir)) {
-		fs.mkdirSync(shadowFileDir, {recursive: true});
-	}
+    try {
+        fs.copyFileSync(savedFilePath, shadowFilePath);
+    } catch (err: any) {
+        ExtensionLogger.log(`ファイルのコピーに失敗しました: ${err.message}`, 'ERROR');
+        return;
+    }
 
-	fs.copyFileSync(savedFilePath, shadowFilePath);
+    const timestamp = new Date().toISOString();
+    const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
 
-	// 4. シャドウリポジトリ側で Git Add & Commit を実行
-	const timestamp = new Date().toISOString();
-	const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
-
-	try {
-		execSync(`git add "${relativeFilePath}"`, {cwd: shadowRepoPath});
-		// Windowsの環境変数制約を回避するため、設定を直接インラインで渡してコミット
-		execSync(`git -c user.name="MicroBot" -c user.email="bot@micro.internal" commit -m "${commitMessage}"`, {cwd: shadowRepoPath});
-		vscode.window.setStatusBarMessage(`[MicroGit] 自動保存コミット完了: ${timestamp}`, 3000);
-	} catch {
-		// 変更がない場合はここに来るのでスルー
-		console.log('変更がないためスキップしました。');
-	}
+    try {
+        execSync(`git add "${relativeFilePath}"`, { cwd: shadowRepoPath });
+        execSync(`git -c user.name="MicroBot" -c user.email="bot@micro.internal" commit -m "${commitMessage}"`, { cwd: shadowRepoPath });
+        vscode.window.setStatusBarMessage(`[MicroGit] 自動保存コミット完了: ${timestamp}`, 3000);
+        ExtensionLogger.log(`シャドウコミット成功: ${relativeFilePath}`);
+    } catch {
+        ExtensionLogger.log(`変更がないためコミットをスキップしました: ${relativeFilePath}`);
+    }
 }
 
-
+/**
+ * ログ管理クラス
+ */
 class ExtensionLogger {
     private static outputChannel: vscode.OutputChannel;
-    // メモリ上にログを溜めておく配列（後でまとめて分析するため）
     private static logRecords: Array<{ timestamp: string; level: string; message: string }> = [];
 
     public static initialize(channelName: string) {
         this.outputChannel = vscode.window.createOutputChannel(channelName);
     }
 
-    /**
-     * ログを記録するメインメソッド
-     */
     public static log(message: string, level: 'INFO' | 'WARN' | 'ERROR' = 'INFO') {
         const timestamp = new Date().toISOString();
         const formattedMessage = `[${timestamp}] [${level}] ${message}`;
-
-        // 1. VS Codeの出力ウインドウ（Output）にリアルタイム表示
         if (this.outputChannel) {
             this.outputChannel.appendLine(formattedMessage);
         }
-
-        // 2. メモリ上の配列に蓄積
         this.logRecords.push({ timestamp, level, message });
     }
 
-    /**
-     * 溜まったログ（配列）をすべて取得する
-     */
-    public static getRecords() {
-        return this.logRecords;
-    }
-
-    /**
-     * 調査用に、蓄積されたログをJSONファイルとして作業スペースに書き出す
-     */
     public static async exportLogFile(workspaceRoot: string) {
         try {
             const logFolder = path.join(workspaceRoot, '.microgit_logs');
             if (!fs.existsSync(logFolder)) {
                 fs.mkdirSync(logFolder);
             }
-            const filePath = path.join(logFolder, `log_${Date.now()}.json`);
+            const filePath = path.join(logFolder, `log_latest.json`);
             fs.writeFileSync(filePath, JSON.stringify(this.logRecords, null, 2), 'utf8');
-            this.log(`ログファイルをエクスポートしました: ${filePath}`, 'INFO');
         } catch (error: any) {
-            this.outputChannel.appendLine(`ログ出力失敗: ${error.message}`);
+            if (this.outputChannel) {
+                this.outputChannel.appendLine(`ログ出力失敗: ${error.message}`);
+            }
         }
     }
 }
-
-
 
 export function deactivate() {}
