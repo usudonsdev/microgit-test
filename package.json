@@ -10,9 +10,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onFileSystem:file",
-    "onLanguage:python",
-    "onDidSaveTextDocument"
+    "*"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -24,6 +22,14 @@
       {
         "command": "microgit.exportLogs",
         "title": "MicroGit: Export Logs"
+      },
+      {
+        "command": "microgit.jumpToCommit",
+        "title": "MicroGit: Jump to Commit or Tag"
+      },
+      { 
+        "command": "microgit.showGraph",
+        "title": "MicroGit: Show Graph"
       }
     ]
   },
