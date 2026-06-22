@@ -10,7 +10,9 @@
     "Other"
   ],
   "activationEvents": [
-    "onFileSystem:file"
+    "onFileSystem:file",
+    "onLanguage:python",
+    "onDidSaveTextDocument"
   ],
   "main": "./out/extension.js",
   "contributes": {
