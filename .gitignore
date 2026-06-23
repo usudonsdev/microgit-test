@@ -5,5 +5,4 @@ node_modules
 *.vsix
 
 .microgit_shadow/
-
-.microgit_shadow/
+.microgit_logs/

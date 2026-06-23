@@ -30,6 +30,10 @@
       { 
         "command": "microgit.showGraph",
         "title": "MicroGit: Show Graph"
+      },
+      {
+        "command": "microgit.pullHistory",
+        "title": "MicroGit: Pull Shared History"
       }
     ]
   },

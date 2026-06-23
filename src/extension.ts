@@ -3,9 +3,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-// 💡 現在ユーザーがどのタイムライン（マイクロブランチ）の延長線上にいるかを保持する変数
+/**
+ * 現在ユーザーがどのタイムライン（マイクロブランチ）の延長線上にいるかを保持するグローバル状態
+ * @default 'mb-1'
+ */
 let currentMicroBranchTag: string = 'mb-1';
 
+/**
+ * 拡張機能がアクティブになった際に呼び出されるエントリポイント
+ * @param context - VS Codeの拡張機能コンテキスト。コマンドの登録やライフサイクル管理に使用する。
+ */
 export function activate(context: vscode.ExtensionContext) {
     ExtensionLogger.initialize('MicroGit Output');
     ExtensionLogger.log('MicroGit 拡張機能が完全に目覚めました！');
@@ -22,12 +29,15 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // ファイル保存イベントの監視
+    /**
+     * ファイル保存イベントのリスナー
+     * ファイルが保存されるたびに裏側でシャドウコミットを実行する。
+     */
     vscode.workspace.onDidSaveTextDocument(async (document) => {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
 
-        // シャドウ領域やログフォルダ自体の保存イベントは完全に無視する（安全装置）
+        // シャドウ領域やログフォルダ自体の保存イベントは完全に無視する（無限ループ・エラー防止）
         if (document.fileName.includes('.microgit_shadow') || document.fileName.includes('.microgit_logs')) { return; }
 
         ExtensionLogger.log(`ファイル保存イベントを検知しました: ${document.fileName}`);
@@ -45,20 +55,47 @@ export function activate(context: vscode.ExtensionContext) {
         await ExtensionLogger.exportLogFile(rootPath);
     });
 
-    // タイムトラベルコマンド（コマンドパレット用）
+    /**
+     * 手動タイムトラベルコマンド（コマンドパレット用）
+     */
     const jumpCommand = vscode.commands.registerCommand('microgit.jumpToCommit', async () => {
         const target = await vscode.window.showInputBox({
-            prompt: '戻りたいコミットハッシュ、またはマイクロブランチのタグ名（例: mb-1）を入力してください',
-            placeHolder: 'mb-1 または コミットハッシュ'
+            prompt: '戻りたいコミットハッシュ、またはタグ名を入力',
+            placeHolder: 'mb-1'
         });
         if (!target || !workspaceFolders) { return; }
-        const rootPath = workspaceFolders[0].uri.fsPath;
-        await sharedTimeTravel(target, rootPath);
+        await sharedTimeTravel(target, workspaceFolders[0].uri.fsPath);
     });
 
-    context.subscriptions.push(jumpCommand);
+    /**
+     * チームの最新履歴を大元リポジトリから取得する（Pull）コマンド
+     */
+    const pullHistoryCommand = vscode.commands.registerCommand('microgit.pullHistory', async () => {
+        if (!workspaceFolders) { return; }
+        const rootPath = workspaceFolders[0].uri.fsPath;
+        const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
 
-    // 💡 グラフビューアコマンド（GUI表示 ＆ ボタン連動）
+        if (!fs.existsSync(shadowRepoPath)) {
+            vscode.window.showWarningMessage('シャドウリポジトリがありません。一度ファイルを保存してください。');
+            return;
+        }
+
+        try {
+            vscode.window.setStatusBarMessage(`[MicroGit] チームの履歴を取得中...`, 3000);
+            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: rootPath }).toString().trim();
+            if (remoteUrl) {
+                execSync(`git fetch "${remoteUrl}" micro-history:micro-history --tags -f`, { cwd: shadowRepoPath });
+                currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
+                vscode.window.showInformationMessage(`[MicroGit] チームの最新マイクロ履歴を同期しました！`);
+            }
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`履歴の取得に失敗しました（大元にoriginが設定されていない可能性があります）`);
+        }
+    });
+
+    /**
+     * GUI（グラフビューア）を表示するコマンド
+     */
     const showGraphCommand = vscode.commands.registerCommand('microgit.showGraph', async () => {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
@@ -72,25 +109,18 @@ export function activate(context: vscode.ExtensionContext) {
         const panel = vscode.window.createWebviewPanel(
             'microgitGraph',
             'MicroGit Graph ビューア',
-            vscode.ViewColumn.Two,
-            {
-                enableScripts: true, // JavaScriptの実行を許可
-                localResourceRoots: []
-            }
+            vscode.ViewColumn.One,
+            { enableScripts: true, localResourceRoots: [] }
         );
 
-        // 初回描画
         const graphData = getMicroGraphData(shadowRepoPath);
         panel.webview.html = getWebviewContent(graphData);
 
-        // 💡 GUI（Webview）側からの「この時点に戻る」ボタンのクリック信号を受け取るリスナー
         panel.webview.onDidReceiveMessage(
             async (message) => {
                 switch (message.command) {
                     case 'jump':
-                        // タイムトラベルを実行
                         await sharedTimeTravel(message.target, rootPath);
-                        // 実行後、最新のタグ状態を反映して画面を自動リフレッシュ
                         const updatedData = getMicroGraphData(shadowRepoPath);
                         panel.webview.html = getWebviewContent(updatedData);
                         return;
@@ -101,44 +131,63 @@ export function activate(context: vscode.ExtensionContext) {
         );
     });
 
+    context.subscriptions.push(jumpCommand);
+    context.subscriptions.push(pullHistoryCommand);
     context.subscriptions.push(showGraphCommand);
 }
 
 /**
- * 💡 タイムトラベル（復元）の共通処理
+ * 指定したコミット（またはタグ）の時点へワークスペースのファイルを一発復元する関数
+ * @param target - 復元先のコミットハッシュ、またはタグ名（例: 'mb-2'）
+ * @param rootPath - 現在開いているワークスペースのルートディレクトリパス
+ * @returns 非同期処理の完了を表すPromise
  */
-async function sharedTimeTravel(target: string, rootPath: string) {
+async function sharedTimeTravel(target: string, rootPath: string): Promise<void> {
     const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
-    const activeEditor = vscode.window.activeTextEditor;
-    if (!activeEditor) {
-        vscode.window.showWarningMessage('内容を復元するため、対象のファイルをエディタで開いた状態で実行してください。');
-        return;
-    }
-
-    const relativeFilePath = path.relative(rootPath, activeEditor.document.fileName);
 
     try {
-        // ① シャドウ側でHEADを移動
+        // シャドウリポジトリのHEADを指定のターゲットへ移動
         execSync(`git checkout ${target}`, { cwd: shadowRepoPath, stdio: 'ignore' });
+        
+        // ターゲットのコミットで変更されたファイルの一覧を取得
+        const affectedFilesStr = execSync('git diff-tree --no-commit-id --name-only -r HEAD', { cwd: shadowRepoPath }).toString().trim();
+        const affectedFiles = affectedFilesStr.split('\n').filter(Boolean);
 
-        // ② 移動先のコミットからファイル内容を抽出し、メインのファイルを上書き復元
-        const fileContent = execSync(`git show HEAD:"${relativeFilePath}"`, { cwd: shadowRepoPath });
-        fs.writeFileSync(activeEditor.document.fileName, fileContent);
+        // 最初のコミットなど、diffが出ない場合はツリー全体からファイルを取得
+        if (affectedFiles.length === 0) {
+            const allFilesStr = execSync('git ls-tree --name-only -r HEAD', { cwd: shadowRepoPath }).toString().trim();
+            affectedFiles.push(...allFilesStr.split('\n').filter(Boolean));
+        }
 
-        // ③ 現在アクティブなタグ変数を更新
+        // 該当ファイルを実際のワークスペースに上書き復元する
+        for (const relPath of affectedFiles) {
+            const targetWorkspacePath = path.join(rootPath, relPath);
+            try {
+                const fileContent = execSync(`git show HEAD:"${relPath}"`, { cwd: shadowRepoPath });
+                if (!fs.existsSync(path.dirname(targetWorkspacePath))) {
+                    fs.mkdirSync(path.dirname(targetWorkspacePath), { recursive: true });
+                }
+                fs.writeFileSync(targetWorkspacePath, fileContent);
+            } catch (fileErr) {
+                // ファイルが過去の時点に存在しない（削除されている）場合は、ワークスペースからも削除する
+                if (fs.existsSync(targetWorkspacePath)) {
+                    fs.unlinkSync(targetWorkspacePath);
+                }
+            }
+        }
+
+        // 現在アクティブなタグを更新
         if (target.startsWith('mb-')) {
             currentMicroBranchTag = target;
         } else {
             try {
                 const attachedTag = execSync('git tag --points-at HEAD -l "mb-*"', { cwd: shadowRepoPath }).toString().trim();
-                if (attachedTag) {
-                    currentMicroBranchTag = attachedTag.split('\n')[0];
-                }
+                if (attachedTag) { currentMicroBranchTag = attachedTag.split('\n')[0]; }
             } catch {}
         }
 
-        vscode.window.showInformationMessage(`[MicroGit] ${target} の状態にタイムトラベルしました！`);
-        ExtensionLogger.log(`[タイムトラベル] ${relativeFilePath} を ${target} の時点に復元。現在のアクティブタグ: ${currentMicroBranchTag}`);
+        vscode.window.showInformationMessage(`[MicroGit] ${target} の状態に一発復元しました！`);
+        ExtensionLogger.log(`[タイムトラベル] ${target} の時点に復元。現在のアクティブタグ: ${currentMicroBranchTag}`);
         await ExtensionLogger.exportLogFile(rootPath);
     } catch (err: any) {
         vscode.window.showErrorMessage(`タイムトラベルに失敗しました: ${err.message}`);
@@ -146,47 +195,34 @@ async function sharedTimeTravel(target: string, rootPath: string) {
 }
 
 /**
- * 裏側（シャドウ領域）で自動コミットおよびタグの制御を行う関数
+ * ファイル保存時に裏側（シャドウ領域）で自動コミットおよびタグの制御を行う関数
+ * 大元リポジトリへの自動同期（Push）も担う。
+ * * @param mainRepoPath - ワークスペースのルートパス
+ * @param savedFilePath - 今回保存されたファイルの絶対パス
  */
-async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
+async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Promise<void> {
     const shadowRepoPath = path.join(mainRepoPath, '.microgit_shadow');
     const relativeFilePath = path.relative(mainRepoPath, savedFilePath);
     const shadowFilePath = path.join(shadowRepoPath, relativeFilePath);
 
+    // シャドウリポジトリが存在しない場合の初期化処理
     if (!fs.existsSync(shadowRepoPath)) {
         fs.mkdirSync(shadowRepoPath, { recursive: true });
-        try {
-            execSync('git init -b micro-history', { cwd: shadowRepoPath, stdio: 'ignore' });
-            ExtensionLogger.log(`シャドウリポジトリを初期化しました: ${shadowRepoPath}`);
-        } catch (err: any) {
-            ExtensionLogger.log(`git init に失敗しました: ${err.message}`, 'ERROR');
-        }
-
-        const gitignorePath = path.join(mainRepoPath, '.gitignore');
-        try {
-            fs.appendFileSync(gitignorePath, '\n.microgit_shadow/\n');
-        } catch {}
+        try { execSync('git init -b micro-history', { cwd: shadowRepoPath, stdio: 'ignore' }); } catch {}
+        try { fs.appendFileSync(path.join(mainRepoPath, '.gitignore'), '\n.microgit_shadow/\n.microgit_logs/\n'); } catch {}
     }
 
-    const shadowFileDir = path.dirname(shadowFilePath);
-    if (!fs.existsSync(shadowFileDir)) {
-        fs.mkdirSync(shadowFileDir, { recursive: true });
-    }
+    if (!fs.existsSync(path.dirname(shadowFilePath))) { fs.mkdirSync(path.dirname(shadowFilePath), { recursive: true }); }
 
-    try {
-        fs.copyFileSync(savedFilePath, shadowFilePath);
-    } catch (err: any) {
-        ExtensionLogger.log(`ファイルのコピーに失敗しました: ${err.message}`, 'ERROR');
-        return;
-    }
+    // 保存された最新状態のファイルをシャドウ領域にコピー
+    try { fs.copyFileSync(savedFilePath, shadowFilePath); } catch { return; }
 
+    // HEADと現在のタグが一致しているか（歴史を直列に前進させるか、過去から分岐させるか）を判定
     let isForwarding = false;
     try {
         const headHash = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
         const tagHash = execSync(`git rev-parse ${currentMicroBranchTag}`, { cwd: shadowRepoPath }).toString().trim();
-        if (headHash === tagHash) {
-            isForwarding = true;
-        }
+        if (headHash === tagHash) { isForwarding = true; }
     } catch {}
 
     const timestamp = new Date().toISOString();
@@ -197,26 +233,41 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
         execSync(`git -c user.name="MicroBot" -c user.email="bot@micro.internal" commit -m "${commitMessage}"`, { cwd: shadowRepoPath });
 
         if (isForwarding) {
+            // 直列前進：既存のタグを新しいコミットへ付け替える
             execSync(`git tag -f ${currentMicroBranchTag}`, { cwd: shadowRepoPath });
-            ExtensionLogger.log(`マイクロブランチを前進させました: ${currentMicroBranchTag}`);
         } else {
+            // 分岐：新しい連番のタグを生成して付与する
             const nextTag = getNextTagCode(shadowRepoPath);
             execSync(`git tag ${nextTag}`, { cwd: shadowRepoPath });
             currentMicroBranchTag = nextTag;
-            ExtensionLogger.log(`過去から新しいマイクロブランチが分岐しました: ${currentMicroBranchTag}`);
         }
 
-        vscode.window.setStatusBarMessage(`[MicroGit] 保存コミット完了 (${currentMicroBranchTag}): ${timestamp}`, 3000);
-        ExtensionLogger.log(`シャドウコミット成功: ${relativeFilePath} (Tag: ${currentMicroBranchTag})`);
+        // 大元リポジトリのoriginを読み取り、自動プッシュを試みる
+        try {
+            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: mainRepoPath }).toString().trim();
+            if (remoteUrl) {
+                execSync(`git push "${remoteUrl}" micro-history --tags -f`, { cwd: shadowRepoPath, stdio: 'ignore' });
+                vscode.window.setStatusBarMessage(`[MicroGit] 大元リモートへ同期完了 (${currentMicroBranchTag})`, 4000);
+            } else {
+                vscode.window.setStatusBarMessage(`[MicroGit] 保存完了 (${currentMicroBranchTag})`, 3000);
+            }
+        } catch (pushErr) {
+            vscode.window.setStatusBarMessage(`[MicroGit] 保存完了 (リモート未同期)`, 3000);
+        }
 
         const graphData = getMicroGraphData(shadowRepoPath);
         ExtensionLogger.log(`【現在のツリー状態】\n${JSON.stringify(graphData, null, 2)}`);
 
     } catch {
-        ExtensionLogger.log(`変更がないためコミットをスキップしました: ${relativeFilePath}`);
+        // コピーしたファイルに差分がなかった場合（git commitが失敗した場合）はスキップ
     }
 }
 
+/**
+ * 次に付与すべき新しいマイクロブランチタグ（例: mb-2）を計算して返す
+ * @param shadowRepoPath - シャドウリポジトリのパス
+ * @returns 次のタグ名となる文字列
+ */
 function getNextTagCode(shadowRepoPath: string): string {
     try {
         const stdout = execSync('git tag -l "mb-*"', { cwd: shadowRepoPath }).toString();
@@ -230,62 +281,68 @@ function getNextTagCode(shadowRepoPath: string): string {
             }
         }
         return `mb-${maxNum + 1}`;
-    } catch {
-        return 'mb-1';
-    }
+    } catch { return 'mb-1'; }
 }
 
+/**
+ * 現在チェックアウトされているコミットに紐づいているタグを検出する
+ * @param shadowRepoPath - シャドウリポジトリのパス
+ * @returns 検出されたタグ名、存在しない場合は 'mb-1'
+ */
 function detectCurrentTag(shadowRepoPath: string): string {
     try {
-        const stdout = execSync(
-            'git for-each-ref --sort=-committerdate --format="%(refname:short)" refs/tags/mb-*',
-            { cwd: shadowRepoPath }
-        ).toString().trim();
+        const stdout = execSync('git for-each-ref --sort=-committerdate --format="%(refname:short)" refs/tags/mb-*', { cwd: shadowRepoPath }).toString().trim();
         const tags = stdout.split('\n').filter(Boolean);
         return tags.length > 0 ? tags[0] : 'mb-1';
-    } catch {
-        return 'mb-1';
-    }
+    } catch { return 'mb-1'; }
 }
 
+/**
+ * 拡張機能の内部動作を記録・出力するロガークラス
+ */
 class ExtensionLogger {
     private static outputChannel: vscode.OutputChannel;
     private static logRecords: Array<{ timestamp: string; level: string; message: string }> = [];
 
-    public static initialize(channelName: string) {
-        this.outputChannel = vscode.window.createOutputChannel(channelName);
-    }
+    /**
+     * ロガーを初期化し、VS Codeの「出力」パネルに専用チャンネルを作成する
+     * @param channelName - 出力パネルに表示される名前
+     */
+    public static initialize(channelName: string) { this.outputChannel = vscode.window.createOutputChannel(channelName); }
 
+    /**
+     * メッセージをログとして記録する
+     * @param message - 記録するメッセージの内容
+     * @param level - ログの重要度（デフォルトは 'INFO'）
+     */
     public static log(message: string, level: 'INFO' | 'WARN' | 'ERROR' = 'INFO') {
         const timestamp = new Date().toISOString();
-        const formattedMessage = `[${timestamp}] [${level}] ${message}`;
-        if (this.outputChannel) {
-            this.outputChannel.appendLine(formattedMessage);
-        }
+        if (this.outputChannel) { this.outputChannel.appendLine(`[${timestamp}] [${level}] ${message}`); }
         this.logRecords.push({ timestamp, level, message });
     }
 
+    /**
+     * 蓄積されたログをワークスペース内のJSONファイルとしてエクスポートする
+     * @param workspaceRoot - ワークスペースのルートパス
+     */
     public static async exportLogFile(workspaceRoot: string) {
         try {
             const logFolder = path.join(workspaceRoot, '.microgit_logs');
-            if (!fs.existsSync(logFolder)) {
-                fs.mkdirSync(logFolder);
-            }
-            const filePath = path.join(logFolder, `log_latest.json`);
-            fs.writeFileSync(filePath, JSON.stringify(this.logRecords, null, 2), 'utf8');
-        } catch (error: any) {
-            if (this.outputChannel) {
-                this.outputChannel.appendLine(`ログ出力失敗: ${error.message}`);
-            }
-        }
+            if (!fs.existsSync(logFolder)) { fs.mkdirSync(logFolder); }
+            fs.writeFileSync(path.join(logFolder, `log_latest.json`), JSON.stringify(this.logRecords, null, 2), 'utf8');
+        } catch {}
     }
 }
 
+/**
+ * シャドウリポジトリからコミット履歴を抽出し、グラフ描画用のデータ構造に変換する
+ * @param shadowRepoPath - シャドウリポジトリのパス
+ * @returns コミット情報の配列
+ */
 function getMicroGraphData(shadowRepoPath: string): any[] {
     try {
         const stdout = execSync('git log --all --topo-order --pretty=format:"%H|%P|%d|%s|%ct"', { cwd: shadowRepoPath }).toString();
         const lines = stdout.trim().split('\n').filter(Boolean);
-
         return lines.map(line => {
             const parts = line.split('|');
             const hash = parts[0] || '';
@@ -293,13 +350,9 @@ function getMicroGraphData(shadowRepoPath: string): any[] {
             const decorations = parts[2] || '';
             const timestampStr = parts[parts.length - 1] || '0';
             const subject = parts.slice(3, parts.length - 1).join('|') || parts[3] || '';
-
             let tags: string[] = [];
             const tagMatch = decorations.match(/tag:\s*([a-zA-Z0-9_-]+)/g);
-            if (tagMatch) {
-                tags = tagMatch.map((t: string) => t.replace('tag: ', ''));
-            }
-
+            if (tagMatch) { tags = tagMatch.map((t: string) => t.replace('tag: ', '')); }
             return {
                 hash: hash,
                 parents: parents,
@@ -308,19 +361,20 @@ function getMicroGraphData(shadowRepoPath: string): any[] {
                 timestamp: new Date(parseInt(timestampStr, 10) * 1000).toLocaleString()
             };
         });
-    } catch (err) {
-        return [];
-    }
+    } catch (err) { return []; }
 }
 
+/**
+ * Webviewに表示するHTMLコンテンツを生成する
+ * @param graphData - `getMicroGraphData` で抽出したコミット情報の配列
+ * @returns Webview用の完全なHTML文字列
+ */
 function getWebviewContent(graphData: any[]): string {
     if (!graphData || graphData.length === 0) {
         return `<html><body style="background-color:#1e1e1e;color:#fff;padding:20px;"><h3>⏱️ MicroGit</h3>履歴がまだありません。</body></html>`;
     }
 
     const commitsForGraph = [...graphData].reverse();
-
-    // 💡 ユーザーがいまどこのブランチ(タグ)にいるか視覚化するための、現在のアクティブタグ情報を渡す
     const currentActiveTag = currentMicroBranchTag;
 
     return `
@@ -351,20 +405,15 @@ function getWebviewContent(graphData: any[]): string {
             <h3>⏱️ MicroGit タイムライングラフ</h3>
             <div id="graph-container"></div>
         </div>
-
         <div id="right-layout">
             <h3>🛠️ 操作・履歴一覧</h3>
-            <div class="subtitle">現在アクティブ: <b>${currentActiveTag}</b></div>
+            <div class="subtitle">現在地: <b>${currentActiveTag}</b></div>
             <div id="control-panel"></div>
         </div>
-
         <script>
-            // VS Codeのメッセージ通信APIを取得
             const vscode = acquireVsCodeApi();
             const rawCommits = ${JSON.stringify(commitsForGraph)};
             const activeTag = "${currentActiveTag}";
-
-            // 1. Gitgraphの描画
             const container = document.getElementById("graph-container");
             const gitgraph = GitgraphJS.createGitgraph(container, { orientation: "vertical", template: "metro" });
             const branches = { "main": gitgraph.branch("root") };
@@ -391,17 +440,13 @@ function getWebviewContent(graphData: any[]): string {
                 }
             });
 
-            // 2. 右側操作カードの動的生成（新しいコミットを上にするために再度逆転）
             const panel = document.getElementById("control-panel");
             [...rawCommits].reverse().forEach(commit => {
                 const isActive = commit.tags.includes(activeTag);
                 const card = document.createElement("div");
                 card.className = "commit-card" + (isActive ? " active" : "");
-                
-                // タグがあればバッジにする
                 const tagSpan = commit.tags.length ? \`<span class="commit-tag">\${commit.tags.join(", ")}</span>\` : "";
                 const activeBadge = isActive ? \`<span class="active-badge">現在地</span>\` : "";
-
                 card.innerHTML = \`
                     \${activeBadge}
                     <div class="commit-header">
@@ -409,19 +454,18 @@ function getWebviewContent(graphData: any[]): string {
                         \${tagSpan}
                     </div>
                     <div class="commit-msg">\${commit.subject}</div>
-                    <button class="jump-btn" onclick="timeTravel('\${commit.hash}')">この時点に戻る</button>
+                    <button class="jump-btn" onclick="timeTravel('\${commit.hash}')">この時点に一発復元</button>
                 \`;
                 panel.appendChild(card);
             });
-
-            // ボタンを押した時にVS Code本体へ信号を送る
-            function timeTravel(hashOrTag) {
-                vscode.postMessage({ command: 'jump', target: hashOrTag });
-            }
+            function timeTravel(hashOrTag) { vscode.postMessage({ command: 'jump', target: hashOrTag }); }
         </script>
     </body>
     </html>
     `;
 }
 
+/**
+ * 拡張機能が無効化される際に呼び出されるライフサイクル関数
+ */
 export function deactivate() {}

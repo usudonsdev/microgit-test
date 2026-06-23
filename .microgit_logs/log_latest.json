@@ -1,7 +1,112 @@
 [
   {
-    "timestamp": "2026-06-23T04:12:04.643Z",
+    "timestamp": "2026-06-23T06:08:24.154Z",
     "level": "INFO",
     "message": "MicroGit 拡張機能が完全に目覚めました！"
+  },
+  {
+    "timestamp": "2026-06-23T06:08:24.219Z",
+    "level": "INFO",
+    "message": "前回のアクティブマイクロブランチを引き継ぎました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:08.612Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\.gitignore"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:08.941Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:08.941Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: .gitignore (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:09.003Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:09.153Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\.gitignore"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:09.385Z",
+    "level": "INFO",
+    "message": "変更がないためコミットをスキップしました: .gitignore"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:09.564Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\.gitignore"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:09.829Z",
+    "level": "INFO",
+    "message": "変更がないためコミットをスキップしました: .gitignore"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:44.855Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\src\\extension.ts"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:45.185Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:45.185Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: src\\extension.ts (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:11:45.245Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:16:28.983Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:16:29.292Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:16:29.292Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:16:29.350Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:19:13.075Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\src\\extension.ts"
+  },
+  {
+    "timestamp": "2026-06-23T06:19:13.399Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:19:13.399Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: src\\extension.ts (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:19:13.456Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
   }
 ]
