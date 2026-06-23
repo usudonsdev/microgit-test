@@ -1,7 +1,32 @@
 [
   {
-    "timestamp": "2026-06-23T04:12:04.643Z",
+    "timestamp": "2026-06-23T04:51:27.121Z",
     "level": "INFO",
     "message": "MicroGit 拡張機能が完全に目覚めました！"
+  },
+  {
+    "timestamp": "2026-06-23T04:51:27.197Z",
+    "level": "INFO",
+    "message": "前回のアクティブマイクロブランチを引き継ぎました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T04:52:06.063Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\src\\extension.ts"
+  },
+  {
+    "timestamp": "2026-06-23T04:52:06.377Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T04:52:06.377Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: src\\extension.ts (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T04:52:06.432Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
   }
 ]
