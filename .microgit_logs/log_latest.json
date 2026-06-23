@@ -1,27 +1,7 @@
 [
   {
-    "timestamp": "2026-06-22T15:20:55.957Z",
+    "timestamp": "2026-06-23T04:12:04.643Z",
     "level": "INFO",
     "message": "MicroGit 拡張機能が完全に目覚めました！"
-  },
-  {
-    "timestamp": "2026-06-22T15:20:58.353Z",
-    "level": "INFO",
-    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\test_dummy.py"
-  },
-  {
-    "timestamp": "2026-06-22T15:20:58.444Z",
-    "level": "INFO",
-    "message": "シャドウリポジトリを初期化しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\.microgit_shadow"
-  },
-  {
-    "timestamp": "2026-06-22T15:20:58.831Z",
-    "level": "INFO",
-    "message": "過去から新しいマイクロブランチが分岐しました: mb-1"
-  },
-  {
-    "timestamp": "2026-06-22T15:20:58.831Z",
-    "level": "INFO",
-    "message": "シャドウコミット成功: test_dummy.py (Tag: mb-1)"
   }
 ]

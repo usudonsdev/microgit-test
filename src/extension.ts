@@ -7,7 +7,6 @@ import * as vscode from 'vscode';
 let currentMicroBranchTag: string = 'mb-1';
 
 export function activate(context: vscode.ExtensionContext) {
-    // 1. ロガーを初期化して、起動ログを記録
     ExtensionLogger.initialize('MicroGit Output');
     ExtensionLogger.log('MicroGit 拡張機能が完全に目覚めました！');
 
@@ -16,7 +15,6 @@ export function activate(context: vscode.ExtensionContext) {
         const rootPath = workspaceFolders[0].uri.fsPath;
         ExtensionLogger.exportLogFile(rootPath);
 
-        // 💡 起動時に、シャドウリポジトリから直近で使われていたアクティブタグを自動検出して引き継ぐ
         const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
         if (fs.existsSync(shadowRepoPath)) {
             currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
@@ -24,24 +22,16 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    // 2. ファイル保存イベントの監視
+    // ファイル保存イベントの監視
     vscode.workspace.onDidSaveTextDocument(async (document) => {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
 
-        // 💡【追加】シャドウ領域やログフォルダ自体の保存イベントは完全に無視する
+        // シャドウ領域やログフォルダ自体の保存イベントは完全に無視する（安全装置）
         if (document.fileName.includes('.microgit_shadow') || document.fileName.includes('.microgit_logs')) { return; }
 
         ExtensionLogger.log(`ファイル保存イベントを検知しました: ${document.fileName}`);
-        await ExtensionLogger.exportLogFile(rootPath);
-
-        // 💡【新対策】エディタが開いてから、VS Codeの内部システムが安定するまで1秒待つ
-
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        ExtensionLogger.log(`ファイル保存イベントを検知しました: ${document.fileName}`);
-        await ExtensionLogger.exportLogFile(rootPath);
-
+        
         const gitPath = path.join(rootPath, '.git');
         const isTestFile = document.fileName.endsWith('test_dummy.py');
         
@@ -51,63 +41,24 @@ export function activate(context: vscode.ExtensionContext) {
             return; 
         }
 
-        // シャドウコミットを実行（内部でタグの自動前進・自動分岐が行われます）
         await runShadowCommit(rootPath, document.fileName);
-
-        // 最終的な結果を書き出す
         await ExtensionLogger.exportLogFile(rootPath);
     });
 
-    // 💡 3. 【試用用】過去のコミットやタグの時点にタイムトラベルするコマンド
+    // タイムトラベルコマンド（コマンドパレット用）
     const jumpCommand = vscode.commands.registerCommand('microgit.jumpToCommit', async () => {
         const target = await vscode.window.showInputBox({
             prompt: '戻りたいコミットハッシュ、またはマイクロブランチのタグ名（例: mb-1）を入力してください',
             placeHolder: 'mb-1 または コミットハッシュ'
         });
         if (!target || !workspaceFolders) { return; }
-
-        const activeEditor = vscode.window.activeTextEditor;
-        if (!activeEditor) {
-            vscode.window.showWarningMessage('内容を復元するため、対象のファイルをエディタで開いた状態で実行してください。');
-            return;
-        }
-
         const rootPath = workspaceFolders[0].uri.fsPath;
-        const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
-        const relativeFilePath = path.relative(rootPath, activeEditor.document.fileName);
-
-        try {
-            // ① シャドウ側でHEADを移動（Detached HEAD状態にする）
-            execSync(`git checkout ${target}`, { cwd: shadowRepoPath, stdio: 'ignore' });
-
-            // ② 移動先のコミットからファイル内容を抽出し、メインワークスペースのファイルを上書き復元
-            const fileContent = execSync(`git show HEAD:"${relativeFilePath}"`, { cwd: shadowRepoPath });
-            fs.writeFileSync(activeEditor.document.fileName, fileContent);
-
-            // ③ 現在アクティブなタグ変数を更新
-            if (target.startsWith('mb-')) {
-                currentMicroBranchTag = target;
-            } else {
-                // ハッシュ直指定で戻った場合、そのコミットに既存の mb-* タグがあればそれをアクティブにする
-                try {
-                    const attachedTag = execSync('git tag --points-at HEAD -l "mb-*"', { cwd: shadowRepoPath }).toString().trim();
-                    if (attachedTag) {
-                        currentMicroBranchTag = attachedTag.split('\n')[0];
-                    }
-                } catch {}
-            }
-
-            vscode.window.showInformationMessage(`[MicroGit] ${target} の状態にタイムトラベルしました！`);
-            ExtensionLogger.log(`[タイムトラベル] ${relativeFilePath} を ${target} の時点に復元。現在のアクティブタグ: ${currentMicroBranchTag}`);
-            await ExtensionLogger.exportLogFile(rootPath);
-        } catch (err: any) {
-            vscode.window.showErrorMessage(`タイムトラベルに失敗しました: ${err.message}`);
-        }
+        await sharedTimeTravel(target, rootPath);
     });
 
     context.subscriptions.push(jumpCommand);
 
-
+    // 💡 グラフビューアコマンド（GUI表示 ＆ ボタン連動）
     const showGraphCommand = vscode.commands.registerCommand('microgit.showGraph', async () => {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
@@ -118,25 +69,80 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
-        // 1. Webviewパネルをエディタの右側（ViewColumn.Two）に作成
         const panel = vscode.window.createWebviewPanel(
-            'microgitGraph',               // 識別用のキー
-            'MicroGit Graph ビューア',      // タブのタイトル
-            vscode.ViewColumn.Two,          // 表示する位置（2列目）
+            'microgitGraph',
+            'MicroGit Graph ビューア',
+            vscode.ViewColumn.Two,
             {
-                enableScripts: true,        // Webview内でのJavaScript実行を許可
+                enableScripts: true, // JavaScriptの実行を許可
                 localResourceRoots: []
             }
         );
 
-        // 2. シャドウリポジトリから最新のツリーデータ（JSON）を取得
+        // 初回描画
         const graphData = getMicroGraphData(shadowRepoPath);
-
-        // 3. WebviewにHTMLを注入（データを一緒に渡す）
         panel.webview.html = getWebviewContent(graphData);
+
+        // 💡 GUI（Webview）側からの「この時点に戻る」ボタンのクリック信号を受け取るリスナー
+        panel.webview.onDidReceiveMessage(
+            async (message) => {
+                switch (message.command) {
+                    case 'jump':
+                        // タイムトラベルを実行
+                        await sharedTimeTravel(message.target, rootPath);
+                        // 実行後、最新のタグ状態を反映して画面を自動リフレッシュ
+                        const updatedData = getMicroGraphData(shadowRepoPath);
+                        panel.webview.html = getWebviewContent(updatedData);
+                        return;
+                }
+            },
+            undefined,
+            context.subscriptions
+        );
     });
 
     context.subscriptions.push(showGraphCommand);
+}
+
+/**
+ * 💡 タイムトラベル（復元）の共通処理
+ */
+async function sharedTimeTravel(target: string, rootPath: string) {
+    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const activeEditor = vscode.window.activeTextEditor;
+    if (!activeEditor) {
+        vscode.window.showWarningMessage('内容を復元するため、対象のファイルをエディタで開いた状態で実行してください。');
+        return;
+    }
+
+    const relativeFilePath = path.relative(rootPath, activeEditor.document.fileName);
+
+    try {
+        // ① シャドウ側でHEADを移動
+        execSync(`git checkout ${target}`, { cwd: shadowRepoPath, stdio: 'ignore' });
+
+        // ② 移動先のコミットからファイル内容を抽出し、メインのファイルを上書き復元
+        const fileContent = execSync(`git show HEAD:"${relativeFilePath}"`, { cwd: shadowRepoPath });
+        fs.writeFileSync(activeEditor.document.fileName, fileContent);
+
+        // ③ 現在アクティブなタグ変数を更新
+        if (target.startsWith('mb-')) {
+            currentMicroBranchTag = target;
+        } else {
+            try {
+                const attachedTag = execSync('git tag --points-at HEAD -l "mb-*"', { cwd: shadowRepoPath }).toString().trim();
+                if (attachedTag) {
+                    currentMicroBranchTag = attachedTag.split('\n')[0];
+                }
+            } catch {}
+        }
+
+        vscode.window.showInformationMessage(`[MicroGit] ${target} の状態にタイムトラベルしました！`);
+        ExtensionLogger.log(`[タイムトラベル] ${relativeFilePath} を ${target} の時点に復元。現在のアクティブタグ: ${currentMicroBranchTag}`);
+        await ExtensionLogger.exportLogFile(rootPath);
+    } catch (err: any) {
+        vscode.window.showErrorMessage(`タイムトラベルに失敗しました: ${err.message}`);
+    }
 }
 
 /**
@@ -147,7 +153,6 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
     const relativeFilePath = path.relative(mainRepoPath, savedFilePath);
     const shadowFilePath = path.join(shadowRepoPath, relativeFilePath);
 
-    // シャドウリポジトリの初期化
     if (!fs.existsSync(shadowRepoPath)) {
         fs.mkdirSync(shadowRepoPath, { recursive: true });
         try {
@@ -175,17 +180,14 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
         return;
     }
 
-    // 💡 コミットを打つ前に、現在のHEADとアクティブタグのハッシュが一致しているか（＝最前線にいるか）を判定する
     let isForwarding = false;
     try {
         const headHash = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
         const tagHash = execSync(`git rev-parse ${currentMicroBranchTag}`, { cwd: shadowRepoPath }).toString().trim();
         if (headHash === tagHash) {
-            isForwarding = true; // 最前線にいるので、現在のタグをそのまま進めるモード
+            isForwarding = true;
         }
-    } catch {
-        // 初回コミット時やタグがまだ存在しない場合は、一致しない（isForwarding = false）として新規作成へ流す
-    }
+    } catch {}
 
     const timestamp = new Date().toISOString();
     const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
@@ -194,23 +196,19 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
         execSync(`git add "${relativeFilePath}"`, { cwd: shadowRepoPath });
         execSync(`git -c user.name="MicroBot" -c user.email="bot@micro.internal" commit -m "${commitMessage}"`, { cwd: shadowRepoPath });
 
-        // 💡 【タグ制御のコアロジック】
         if (isForwarding) {
-            // A. 通常の前進：古い位置のタグを引っぺがして、今作った最新コミットに強制移動（上書き）する
             execSync(`git tag -f ${currentMicroBranchTag}`, { cwd: shadowRepoPath });
             ExtensionLogger.log(`マイクロブランチを前進させました: ${currentMicroBranchTag}`);
         } else {
-            // B. 過去からの新規分岐（または初回）：古いタグは過去の遺産として残し、新しい連番タグを発行する
             const nextTag = getNextTagCode(shadowRepoPath);
             execSync(`git tag ${nextTag}`, { cwd: shadowRepoPath });
-            currentMicroBranchTag = nextTag; // 現在のアクティブタグを新ブランチに切り替え
+            currentMicroBranchTag = nextTag;
             ExtensionLogger.log(`過去から新しいマイクロブランチが分岐しました: ${currentMicroBranchTag}`);
         }
 
         vscode.window.setStatusBarMessage(`[MicroGit] 保存コミット完了 (${currentMicroBranchTag}): ${timestamp}`, 3000);
         ExtensionLogger.log(`シャドウコミット成功: ${relativeFilePath} (Tag: ${currentMicroBranchTag})`);
 
-        // 現在のツリー状態をキャプチャしてログに出力
         const graphData = getMicroGraphData(shadowRepoPath);
         ExtensionLogger.log(`【現在のツリー状態】\n${JSON.stringify(graphData, null, 2)}`);
 
@@ -219,9 +217,6 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string) {
     }
 }
 
-/**
- * 💡 既存の「mb-*」タグの中で最大の数値を探し、次の連番タグ名を生成するヘルパー関数
- */
 function getNextTagCode(shadowRepoPath: string): string {
     try {
         const stdout = execSync('git tag -l "mb-*"', { cwd: shadowRepoPath }).toString();
@@ -240,9 +235,6 @@ function getNextTagCode(shadowRepoPath: string): string {
     }
 }
 
-/**
- * 💡 起動時に最も新しく更新された「mb-*」タグを検出するヘルパー関数
- */
 function detectCurrentTag(shadowRepoPath: string): string {
     try {
         const stdout = execSync(
@@ -256,9 +248,6 @@ function detectCurrentTag(shadowRepoPath: string): string {
     }
 }
 
-/**
- * ログ管理クラス
- */
 class ExtensionLogger {
     private static outputChannel: vscode.OutputChannel;
     private static logRecords: Array<{ timestamp: string; level: string; message: string }> = [];
@@ -292,12 +281,8 @@ class ExtensionLogger {
     }
 }
 
-/**
- * 💡 【修正版】シャドウリポジトリから、可視化に必要な全履歴データを安全に取得する関数
- */
 function getMicroGraphData(shadowRepoPath: string): any[] {
     try {
-        // Windows/Mac共通で100%安全なパイプ(|)区切りテキスト方式
         const stdout = execSync('git log --all --topo-order --pretty=format:"%H|%P|%d|%s|%ct"', { cwd: shadowRepoPath }).toString();
         const lines = stdout.trim().split('\n').filter(Boolean);
 
@@ -306,8 +291,6 @@ function getMicroGraphData(shadowRepoPath: string): any[] {
             const hash = parts[0] || '';
             const parents = parts[1] ? parts[1].split(' ').filter(Boolean) : [];
             const decorations = parts[2] || '';
-            
-            // コミットメッセージに万が一「|」が含まれていた場合を考慮した安全な切り分け
             const timestampStr = parts[parts.length - 1] || '0';
             const subject = parts.slice(3, parts.length - 1).join('|') || parts[3] || '';
 
@@ -326,110 +309,115 @@ function getMicroGraphData(shadowRepoPath: string): any[] {
             };
         });
     } catch (err) {
-        ExtensionLogger.log(`履歴データの取得に失敗しました: ${err}`, 'ERROR');
         return [];
     }
 }
 
-/**
- * 💡 【修正版】Webview内に表示するHTMLと@gitgraph/jsの描画ロジックを生成する
- */
 function getWebviewContent(graphData: any[]): string {
-    // 履歴データがまだ空の場合の安全弁
     if (!graphData || graphData.length === 0) {
-        return `
-        <!DOCTYPE html>
-        <html>
-        <head><meta charset="UTF-8"></head>
-        <body style="background-color: #1e1e1e; color: #d4d4d4; font-family: sans-serif; padding: 20px;">
-            <h3>⏱️ MicroGit タイムライングラフ</h3>
-            <p>履歴データがまだありません。ファイルを変更して保存（コミット）してください。</p>
-        </body>
-        </html>
-        `;
+        return `<html><body style="background-color:#1e1e1e;color:#fff;padding:20px;"><h3>⏱️ MicroGit</h3>履歴がまだありません。</body></html>`;
     }
 
-    // データを古い順（コミットされた順）に並び替える
     const commitsForGraph = [...graphData].reverse();
+
+    // 💡 ユーザーがいまどこのブランチ(タグ)にいるか視覚化するための、現在のアクティブタグ情報を渡す
+    const currentActiveTag = currentMicroBranchTag;
 
     return `
     <!DOCTYPE html>
     <html lang="ja">
     <head>
         <meta charset="UTF-8">
-        <title>MicroGit Graph</title>
         <script src="https://cdn.jsdelivr.net/npm/@gitgraph/js"></script>
         <style>
-            body {
-                background-color: #1e1e1e;
-                color: #d4d4d4;
-                font-family: sans-serif;
-                padding: 20px;
-            }
-            h3 { color: #61afef; margin-bottom: 20px; }
-            #graph-container {
-                max-width: 100%;
-                overflow-x: auto;
-            }
+            body { background-color: #1e1e1e; color: #d4d4d4; font-family: sans-serif; padding: 10px; margin: 0; display: flex; height: 100vh; overflow: hidden; }
+            #left-layout { flex: 1; overflow-y: auto; padding: 10px; }
+            #right-layout { width: 340px; border-left: 1px solid #333; background-color: #252526; padding: 15px; overflow-y: auto; display: flex; flex-direction: column; }
+            h3 { color: #61afef; margin-top: 0; margin-bottom: 5px; font-size: 16px; }
+            .subtitle { color: #888; font-size: 11px; margin-bottom: 15px; }
+            .commit-card { background: #1e1e1e; border: 1px solid #444; border-radius: 4px; padding: 10px; margin-bottom: 10px; font-size: 12px; position: relative; }
+            .commit-card.active { border-color: #61afef; background-color: #1c2c3a; }
+            .commit-header { display: flex; justify-content: space-between; margin-bottom: 5px; }
+            .commit-hash { color: #da70d6; font-family: monospace; font-weight: bold; }
+            .commit-tag { background: #98c379; color: #1e1e1e; padding: 1px 5px; border-radius: 3px; font-weight: bold; font-size: 10px; }
+            .commit-msg { color: #e5c07b; margin-bottom: 8px; word-break: break-all; font-family: monospace; }
+            .jump-btn { width: 100%; background: #4b5263; color: white; border: none; padding: 6px; border-radius: 3px; cursor: pointer; font-weight: bold; transition: background 0.2s; }
+            .jump-btn:hover { background: #61afef; }
+            .active-badge { position: absolute; top: -8px; right: 10px; background: #61afef; color: #1e1e1e; font-size: 9px; padding: 1px 4px; border-radius: 3px; font-weight: bold; }
         </style>
     </head>
     <body>
-        <h3>⏱️ MicroGit タイムライングラフ</h3>
-        
-        <div id="graph-container"></div>
+        <div id="left-layout">
+            <h3>⏱️ MicroGit タイムライングラフ</h3>
+            <div id="graph-container"></div>
+        </div>
+
+        <div id="right-layout">
+            <h3>🛠️ 操作・履歴一覧</h3>
+            <div class="subtitle">現在アクティブ: <b>${currentActiveTag}</b></div>
+            <div id="control-panel"></div>
+        </div>
 
         <script>
+            // VS Codeのメッセージ通信APIを取得
+            const vscode = acquireVsCodeApi();
             const rawCommits = ${JSON.stringify(commitsForGraph)};
+            const activeTag = "${currentActiveTag}";
+
+            // 1. Gitgraphの描画
             const container = document.getElementById("graph-container");
-
-            // Gitgraph の初期化 (SourceTree風に上から下へ伸びる設定)
-            const gitgraph = GitgraphJS.createGitgraph(container, {
-                orientation: "vertical",
-                template: "metro" 
-            });
-
-            const branches = {};
+            const gitgraph = GitgraphJS.createGitgraph(container, { orientation: "vertical", template: "metro" });
+            const branches = { "main": gitgraph.branch("root") };
             const commitToBranch = {};
 
-            // 最初のメインブランチを作成
-            branches["main"] = gitgraph.branch("root");
-
-            // 全てのコミットを古い順に処理してグラフを組み立てる
             rawCommits.forEach((commit, index) => {
                 let currentBranch = branches["main"];
-
                 if (index === 0) {
-                    currentBranch.commit({
-                        hash: commit.hash.substring(0, 7),
-                        subject: commit.subject + " " + (commit.tags.length ? "[" + commit.tags.join(",") + "]" : "")
-                    });
+                    currentBranch.commit({ hash: commit.hash.substring(0, 7), subject: commit.subject });
                     commitToBranch[commit.hash] = currentBranch;
                 } else {
                     const parentHash = commit.parents[0];
-
                     if (parentHash && commitToBranch[parentHash]) {
                         const parentBranch = commitToBranch[parentHash];
                         const isBranching = rawCommits.slice(0, index).some(c => c.parents.includes(parentHash));
-                        
                         if (isBranching || commit.tags.length > 0) {
                             const branchName = commit.tags[0] || "branch-" + commit.hash.substring(0, 4);
-                            if (!branches[branchName]) {
-                                branches[branchName] = parentBranch.branch(branchName);
-                            }
+                            if (!branches[branchName]) { branches[branchName] = parentBranch.branch(branchName); }
                             currentBranch = branches[branchName];
-                        } else {
-                            currentBranch = parentBranch;
-                        }
+                        } else { currentBranch = parentBranch; }
                     }
-
-                    currentBranch.commit({
-                        hash: commit.hash.substring(0, 7),
-                        subject: commit.subject + (commit.tags.length ? " 🏷️ [" + commit.tags.join(",") + "]" : "")
-                    });
-
+                    currentBranch.commit({ hash: commit.hash.substring(0, 7), subject: commit.subject + (commit.tags.length ? " [" + commit.tags.join(",") + "]" : "") });
                     commitToBranch[commit.hash] = currentBranch;
                 }
             });
+
+            // 2. 右側操作カードの動的生成（新しいコミットを上にするために再度逆転）
+            const panel = document.getElementById("control-panel");
+            [...rawCommits].reverse().forEach(commit => {
+                const isActive = commit.tags.includes(activeTag);
+                const card = document.createElement("div");
+                card.className = "commit-card" + (isActive ? " active" : "");
+                
+                // タグがあればバッジにする
+                const tagSpan = commit.tags.length ? \`<span class="commit-tag">\${commit.tags.join(", ")}</span>\` : "";
+                const activeBadge = isActive ? \`<span class="active-badge">現在地</span>\` : "";
+
+                card.innerHTML = \`
+                    \${activeBadge}
+                    <div class="commit-header">
+                        <span class="commit-hash">\${commit.hash.substring(0, 7)}</span>
+                        \${tagSpan}
+                    </div>
+                    <div class="commit-msg">\${commit.subject}</div>
+                    <button class="jump-btn" onclick="timeTravel('\${commit.hash}')">この時点に戻る</button>
+                \`;
+                panel.appendChild(card);
+            });
+
+            // ボタンを押した時にVS Code本体へ信号を送る
+            function timeTravel(hashOrTag) {
+                vscode.postMessage({ command: 'jump', target: hashOrTag });
+            }
         </script>
     </body>
     </html>
