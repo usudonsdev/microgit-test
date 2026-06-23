@@ -9,3 +9,7 @@ vsc-extension-quickstart.md
 **/*.map
 **/*.ts
 **/.vscode-test.*
+
+.microgit_logs/**
+.microgit_shadow/**
+test_dummy.py
