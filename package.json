@@ -1,16 +1,19 @@
 {
-  "name": "microgit-test",
-  "displayName": "microgit-test",
-  "description": "",
-  "version": "0.0.1",
+"name": "microgit",
+  "displayName": "MicroGit",
+  "version": "1.0.0",
+  "publisher": "usudonsdev",
+  "description": "保存と同時に裏で自動コミット＆チーム同期するタイムトラベルツール",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/あなたのユーザー名/リポジトリ名"
+  },
   "engines": {
-    "vscode": "^1.119.0"
+    "vscode": "^1.125.0"
   },
   "categories": [
+    "SCM Providers",
     "Other"
-  ],
-  "activationEvents": [
-    "*"
   ],
   "main": "./out/extension.js",
   "contributes": {

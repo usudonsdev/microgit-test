@@ -108,5 +108,195 @@
     "timestamp": "2026-06-23T06:19:13.456Z",
     "level": "INFO",
     "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:26.524Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:26.844Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:26.844Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:26.903Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:55.421Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:55.764Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:55.764Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:55.823Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:59.412Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:59.710Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:59.710Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:44:59.765Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\",\n    \"parents\": [\n      \"327cc623985f9c6416e79d35137a79e65fd59888\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:59.514Z\",\n    \"timestamp\": \"2026/6/23 15:44:59\"\n  },\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:46:32.454Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:46:32.769Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:46:32.769Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:46:32.833Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\",\n    \"parents\": [\n      \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:46:32.557Z\",\n    \"timestamp\": \"2026/6/23 15:46:32\"\n  },\n  {\n    \"hash\": \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\",\n    \"parents\": [\n      \"327cc623985f9c6416e79d35137a79e65fd59888\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:59.514Z\",\n    \"timestamp\": \"2026/6/23 15:44:59\"\n  },\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:04.292Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\README.md"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:04.604Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:04.604Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: README.md (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:04.658Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"86daedfd02f7d126d20125e5b076a273a266bbc1\",\n    \"parents\": [\n      \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved README.md at 2026-06-23T06:47:04.400Z\",\n    \"timestamp\": \"2026/6/23 15:47:04\"\n  },\n  {\n    \"hash\": \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\",\n    \"parents\": [\n      \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:46:32.557Z\",\n    \"timestamp\": \"2026/6/23 15:46:32\"\n  },\n  {\n    \"hash\": \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\",\n    \"parents\": [\n      \"327cc623985f9c6416e79d35137a79e65fd59888\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:59.514Z\",\n    \"timestamp\": \"2026/6/23 15:44:59\"\n  },\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:04.728Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\README.md"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:04.956Z",
+    "level": "INFO",
+    "message": "変更がないためコミットをスキップしました: README.md"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:50.602Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:50.904Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:50.904Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:47:50.959Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"8d5a31b839972a09197c15a1265761cd6c8f7946\",\n    \"parents\": [\n      \"86daedfd02f7d126d20125e5b076a273a266bbc1\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:47:50.707Z\",\n    \"timestamp\": \"2026/6/23 15:47:50\"\n  },\n  {\n    \"hash\": \"86daedfd02f7d126d20125e5b076a273a266bbc1\",\n    \"parents\": [\n      \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved README.md at 2026-06-23T06:47:04.400Z\",\n    \"timestamp\": \"2026/6/23 15:47:04\"\n  },\n  {\n    \"hash\": \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\",\n    \"parents\": [\n      \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:46:32.557Z\",\n    \"timestamp\": \"2026/6/23 15:46:32\"\n  },\n  {\n    \"hash\": \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\",\n    \"parents\": [\n      \"327cc623985f9c6416e79d35137a79e65fd59888\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:59.514Z\",\n    \"timestamp\": \"2026/6/23 15:44:59\"\n  },\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:23.322Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:23.637Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:23.637Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:23.693Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"292b75fc84c7129d80d8fe7c386594faa1337168\",\n    \"parents\": [\n      \"8d5a31b839972a09197c15a1265761cd6c8f7946\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:48:23.432Z\",\n    \"timestamp\": \"2026/6/23 15:48:23\"\n  },\n  {\n    \"hash\": \"8d5a31b839972a09197c15a1265761cd6c8f7946\",\n    \"parents\": [\n      \"86daedfd02f7d126d20125e5b076a273a266bbc1\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:47:50.707Z\",\n    \"timestamp\": \"2026/6/23 15:47:50\"\n  },\n  {\n    \"hash\": \"86daedfd02f7d126d20125e5b076a273a266bbc1\",\n    \"parents\": [\n      \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved README.md at 2026-06-23T06:47:04.400Z\",\n    \"timestamp\": \"2026/6/23 15:47:04\"\n  },\n  {\n    \"hash\": \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\",\n    \"parents\": [\n      \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:46:32.557Z\",\n    \"timestamp\": \"2026/6/23 15:46:32\"\n  },\n  {\n    \"hash\": \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\",\n    \"parents\": [\n      \"327cc623985f9c6416e79d35137a79e65fd59888\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:59.514Z\",\n    \"timestamp\": \"2026/6/23 15:44:59\"\n  },\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:54.090Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\package.json"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:54.394Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:54.394Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: package.json (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:48:54.447Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"8fcd52b90e16afdd50da5e084aa03d4c3c0eadf7\",\n    \"parents\": [\n      \"292b75fc84c7129d80d8fe7c386594faa1337168\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:48:54.194Z\",\n    \"timestamp\": \"2026/6/23 15:48:54\"\n  },\n  {\n    \"hash\": \"292b75fc84c7129d80d8fe7c386594faa1337168\",\n    \"parents\": [\n      \"8d5a31b839972a09197c15a1265761cd6c8f7946\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:48:23.432Z\",\n    \"timestamp\": \"2026/6/23 15:48:23\"\n  },\n  {\n    \"hash\": \"8d5a31b839972a09197c15a1265761cd6c8f7946\",\n    \"parents\": [\n      \"86daedfd02f7d126d20125e5b076a273a266bbc1\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:47:50.707Z\",\n    \"timestamp\": \"2026/6/23 15:47:50\"\n  },\n  {\n    \"hash\": \"86daedfd02f7d126d20125e5b076a273a266bbc1\",\n    \"parents\": [\n      \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved README.md at 2026-06-23T06:47:04.400Z\",\n    \"timestamp\": \"2026/6/23 15:47:04\"\n  },\n  {\n    \"hash\": \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\",\n    \"parents\": [\n      \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:46:32.557Z\",\n    \"timestamp\": \"2026/6/23 15:46:32\"\n  },\n  {\n    \"hash\": \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\",\n    \"parents\": [\n      \"327cc623985f9c6416e79d35137a79e65fd59888\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:59.514Z\",\n    \"timestamp\": \"2026/6/23 15:44:59\"\n  },\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-23T06:49:48.001Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Desktop\\研究室関係\\microgit-test\\LICENCE.md"
+  },
+  {
+    "timestamp": "2026-06-23T06:49:48.308Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-23T06:49:48.309Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: LICENCE.md (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-23T06:49:48.365Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"183f3c7a5d15ad887d35ad38e3cc8666d79b8130\",\n    \"parents\": [\n      \"8fcd52b90e16afdd50da5e084aa03d4c3c0eadf7\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved LICENCE.md at 2026-06-23T06:49:48.106Z\",\n    \"timestamp\": \"2026/6/23 15:49:48\"\n  },\n  {\n    \"hash\": \"8fcd52b90e16afdd50da5e084aa03d4c3c0eadf7\",\n    \"parents\": [\n      \"292b75fc84c7129d80d8fe7c386594faa1337168\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:48:54.194Z\",\n    \"timestamp\": \"2026/6/23 15:48:54\"\n  },\n  {\n    \"hash\": \"292b75fc84c7129d80d8fe7c386594faa1337168\",\n    \"parents\": [\n      \"8d5a31b839972a09197c15a1265761cd6c8f7946\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:48:23.432Z\",\n    \"timestamp\": \"2026/6/23 15:48:23\"\n  },\n  {\n    \"hash\": \"8d5a31b839972a09197c15a1265761cd6c8f7946\",\n    \"parents\": [\n      \"86daedfd02f7d126d20125e5b076a273a266bbc1\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:47:50.707Z\",\n    \"timestamp\": \"2026/6/23 15:47:50\"\n  },\n  {\n    \"hash\": \"86daedfd02f7d126d20125e5b076a273a266bbc1\",\n    \"parents\": [\n      \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved README.md at 2026-06-23T06:47:04.400Z\",\n    \"timestamp\": \"2026/6/23 15:47:04\"\n  },\n  {\n    \"hash\": \"af4b337d4fbd4b5e2ce3f9eb834764df687c1905\",\n    \"parents\": [\n      \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:46:32.557Z\",\n    \"timestamp\": \"2026/6/23 15:46:32\"\n  },\n  {\n    \"hash\": \"c4ddfce2bee2e8e13b2f3d419855874470f9661b\",\n    \"parents\": [\n      \"327cc623985f9c6416e79d35137a79e65fd59888\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:59.514Z\",\n    \"timestamp\": \"2026/6/23 15:44:59\"\n  },\n  {\n    \"hash\": \"327cc623985f9c6416e79d35137a79e65fd59888\",\n    \"parents\": [\n      \"d94eda1ccc59fb460748a14b2183a432c512cc91\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:55.550Z\",\n    \"timestamp\": \"2026/6/23 15:44:55\"\n  },\n  {\n    \"hash\": \"d94eda1ccc59fb460748a14b2183a432c512cc91\",\n    \"parents\": [\n      \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:44:26.635Z\",\n    \"timestamp\": \"2026/6/23 15:44:26\"\n  },\n  {\n    \"hash\": \"217c4e7ac0c4985423e449e495bd5bc2ca51fa8c\",\n    \"parents\": [\n      \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:19:13.187Z\",\n    \"timestamp\": \"2026/6/23 15:19:13\"\n  },\n  {\n    \"hash\": \"3452f8fe8a0dd0e10da2cf519b610b6bbaa43193\",\n    \"parents\": [\n      \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved package.json at 2026-06-23T06:16:29.087Z\",\n    \"timestamp\": \"2026/6/23 15:16:29\"\n  },\n  {\n    \"hash\": \"93b9c48f05fcfe2196093c9a3cbb4d74a10bb9fc\",\n    \"parents\": [\n      \"053dadf3af8fdc551890576a897491db6c026889\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T06:11:44.962Z\",\n    \"timestamp\": \"2026/6/23 15:11:45\"\n  },\n  {\n    \"hash\": \"053dadf3af8fdc551890576a897491db6c026889\",\n    \"parents\": [\n      \"3e15f41b1e05b780c8d1e252db03822cac2721df\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved .gitignore at 2026-06-23T06:11:08.728Z\",\n    \"timestamp\": \"2026/6/23 15:11:08\"\n  },\n  {\n    \"hash\": \"3e15f41b1e05b780c8d1e252db03822cac2721df\",\n    \"parents\": [\n      \"c5706215230ec8b5f740620920d1404aa7149d29\"\n    ],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\extension.ts at 2026-06-23T04:52:06.175Z\",\n    \"timestamp\": \"2026/6/23 13:52:06\"\n  },\n  {\n    \"hash\": \"c5706215230ec8b5f740620920d1404aa7149d29\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved test_dummy.py at 2026-06-22T15:20:58.513Z\",\n    \"timestamp\": \"2026/6/23 0:20:58\"\n  }\n]"
   }
 ]

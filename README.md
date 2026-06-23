@@ -1,71 +1,19 @@
-# microgit-test README
+# MicroGit
 
-This is the README for your extension "microgit-test". After writing up a brief description, we recommend including the following sections.
+保存と同時に裏で自動コミット＆チーム共有を行う、タイムトラベル・超高頻度履歴管理ツールです。
 
-## Features
+## 主な機能
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- **全自動シャドウコミット**: ファイルを保存するだけで、`.microgit_shadow` 領域に自動でコミットが残ります。
+- **大元リポジトリへの自動同期**: 面倒な設定なしで、プロジェクト本体の `origin` の裏ブランチ（`micro-history`）に全自動でプッシュされます。
+- **直感的なタイムトラベル**: 過去の保存ポイントへ、ボタン一つでワークスペースのファイルを一発復元できます。
+- **タイムライングラフ**: 専用のWebviewビューアで、分岐したマイクロ履歴を視覚的に確認できます。
 
-For example if there is an image subfolder under your extension project workspace:
+## 使い方
 
-\!\[feature X\]\(images/feature-x.png\)
+1. **履歴の自動記録**: 通常通りファイルを保存（`Ctrl + S` / `Cmd + S`）するだけで履歴が蓄積されます。
+2. **グラフの表示**: コマンドパレット（`Ctrl+Shift+P`）を開き、`MicroGit: Show Graph` を実行します。
+3. **チーム履歴の取得**: メンバーの最新履歴を取り込むには、`MicroGit: Pull Shared History` を実行します。
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
-
-## Requirements
-
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
-
-## Extension Settings
-
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
-
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
-
-## Known Issues
-
-Calling out known issues can help limit users opening duplicate issues against your extension.
-
-## Release Notes
-
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
-
----
-
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+## 免責事項
+本拡張機能は研究・開発段階のプロトタイプです。重要なプロジェクトで利用する際は、事前に通常のGitでコミットを行ってからご使用ください。
