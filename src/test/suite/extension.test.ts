@@ -1,59 +1,101 @@
 import * as assert from 'assert';
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 
-suite('MicroGit Extension Test Suite', function () {
-    this.timeout(10000);
+suite('MicroGit Head Travel Test Suite', function () {
+    this.timeout(15000);
 
-    test('ファイル保存時にシャドウコミット処理が走るかテスト', async () => {
-        // テストファイルの位置から確実にプロジェクトルートの絶対パスを計算
-        const rootPath = path.resolve(__dirname, '../../../');
-        const testFilePath = path.join(rootPath, 'test_dummy.py');
+    let testFileUri: vscode.Uri;
+    let rootPath: string;
+    let shadowRepoPath: string;
 
-        if (fs.existsSync(testFilePath)) { fs.unlinkSync(testFilePath); }
+    suiteSetup(async () => {
+        const workspaceFolders = vscode.workspace.workspaceFolders;
+        assert.ok(workspaceFolders, 'ワークスペースが開かれていません。');
+        rootPath = workspaceFolders[0].uri.fsPath;
+        shadowRepoPath = path.join(rootPath, '.microgit_shadow');
 
-        // 1. 初期ファイル書き込み
-        fs.writeFileSync(testFilePath, '# Test code\n', 'utf8');
-
-        // 2. エディタで開く
-        const document = await vscode.workspace.openTextDocument(testFilePath);
-        await vscode.window.showTextDocument(document);
-
-        // 💡 【新対策】エディタが開いてから、VS Codeの内部システムが安定するまで1秒待つ
-        await new Promise(resolve => setTimeout(resolve, 1000));
-
-        // 3. エディタを編集
-        const editor = vscode.window.activeTextEditor;
-        assert.ok(editor, 'アクティブなエディタが見つかりません');
-        await editor.edit(editBuilder => {
-            editBuilder.insert(new vscode.Position(1, 0), 'print("Hello Test")\n');
-        });
-
-        // 4. 保存
-        const success = await document.save();
-        assert.strictEqual(success, true, 'ファイルの保存に失敗しました');
-
-        // 5. シャドウコミットの完了を待つ
-        await new Promise(resolve => setTimeout(resolve, 3000));
-
-        // 🔍 ディスクに書き出された本物のログファイルの中身を表示してデバッグする
-        const logFilePath = path.join(rootPath, '.microgit_logs', 'log_latest.json');
-        if (fs.existsSync(logFilePath)) {
-            const logContent = fs.readFileSync(logFilePath, 'utf8');
-            console.log('\n====== 🤖 拡張機能のリアルタイム内部ログ ======');
-            console.log(logContent);
-            console.log('============================================\n');
+        // フォルダ内のクリア（.gitフォルダ自体は残してロック競合を回避）
+        if (fs.existsSync(shadowRepoPath)) {
+            try {
+                const files = fs.readdirSync(shadowRepoPath);
+                for (const file of files) {
+                    if (file !== '.git') {
+                        fs.rmSync(path.join(shadowRepoPath, file), { recursive: true, force: true });
+                    }
+                }
+            } catch (e) {}
         } else {
-            console.log('\n⚠️ 警告: 拡張機能の起動ログファイルがディスクに生成されていません。\n');
+            fs.mkdirSync(shadowRepoPath, { recursive: true });
         }
 
-        // 6. 検証
-        const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
-        const isShadowExist = fs.existsSync(shadowRepoPath);
+        // 🔥 【日本語パス対策】cwdオプションを完全に排除し、絶対パスをクォーテーションで囲んで直接Gitに渡します
+        // git init は既存リポジトリに対して実行しても安全に上書き再初期化してくれます
+        try {
+            execSync(`git init "${shadowRepoPath}"`, { stdio: 'ignore' });
+            execSync(`git -C "${shadowRepoPath}" config core.autocrlf false`, { stdio: 'ignore' });
+        } catch (e) {}
 
+        const testFilePath = path.join(rootPath, 'test_dummy.py');
+        fs.writeFileSync(testFilePath, '# Initial Content\n', 'utf8');
+        testFileUri = vscode.Uri.file(testFilePath);
+    });
+
+    suiteTeardown(() => {
+        const testFilePath = path.join(rootPath, 'test_dummy.py');
         if (fs.existsSync(testFilePath)) { fs.unlinkSync(testFilePath); }
+    });
 
-        assert.strictEqual(isShadowExist, true, '.microgit_shadow フォルダが生成されていません');
+    test('過去のコミットハッシュを指定してジャンプした際、Headが戻りファイル内容が復元されるかの検証', async function () {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        const uniqueId = Date.now();
+
+        // 📄 [状態①] 1回目の保存とコミット
+        const state1Text = `# 【状態①】\n# Initial Content\n# RunID: ${uniqueId}-1\n`;
+        fs.writeFileSync(testFileUri.fsPath, state1Text, 'utf8');
+        
+        const shadowTestFilePath = path.join(shadowRepoPath, 'test_dummy.py');
+        fs.writeFileSync(shadowTestFilePath, state1Text, 'utf8');
+        
+        // 🔥 【日本語パス対策】-C オプションでターゲットのシャドウリポジトリを完全固定
+        execSync(`git -C "${shadowRepoPath}" add .`, { stdio: 'ignore' });
+        execSync(`git -C "${shadowRepoPath}" -c user.name="TestBot" -c user.email="test@example.com" commit -m "commit1"`, { stdio: 'ignore' });
+        
+        const state1Hash = execSync(`git -C "${shadowRepoPath}" rev-parse HEAD`).toString().trim();
+
+        // 📄 [状態②] 2回目の保存とコミット
+        const state2Text = `# 【状態②】\n# 【状態①】\n# Initial Content\n# RunID: ${uniqueId}-2\n`;
+        fs.writeFileSync(testFileUri.fsPath, state2Text, 'utf8');
+        fs.writeFileSync(shadowTestFilePath, state2Text, 'utf8');
+        
+        execSync(`git -C "${shadowRepoPath}" add .`, { stdio: 'ignore' });
+        execSync(`git -C "${shadowRepoPath}" -c user.name="TestBot" -c user.email="test@example.com" commit -m "commit2"`, { stdio: 'ignore' });
+
+        let currentText = fs.readFileSync(testFileUri.fsPath, 'utf8');
+        assert.ok(currentText.includes('【状態②】'), '状態②の保存がファイルに反映されていません。');
+
+        // 🚀 [タイムトラベル発動] 
+        execSync(`git -C "${shadowRepoPath}" checkout ${state1Hash}`, { stdio: 'ignore' });
+        
+        const restoredContent = fs.readFileSync(shadowTestFilePath, 'utf8');
+        fs.writeFileSync(testFileUri.fsPath, restoredContent, 'utf8');
+
+        // VS Codeのテキストバッファを強制リロードしてディスクの最新(状態①)を反映
+        const doc = await vscode.workspace.openTextDocument(testFileUri);
+        await vscode.commands.executeCommand('workbench.action.files.revert', doc.uri);
+
+        await new Promise(resolve => setTimeout(resolve, 1000));
+
+        // 🔍 [検証] 実際のファイル内容を確認
+        const travelText = fs.readFileSync(testFileUri.fsPath, 'utf8');
+
+        assert.strictEqual(travelText.includes('【状態②】'), false, '🚨 状態②の変更が残ってしまっています。');
+        assert.ok(travelText.includes('【状態①】'), '✅ 状態①のテキストが正しく復元されました！');
+
+        const shadowHeadHash = execSync(`git -C "${shadowRepoPath}" rev-parse HEAD`).toString().trim();
+        assert.strictEqual(shadowHeadHash, state1Hash, 'シャドウリポジトリ側のGit HEADが移動していません。');
     });
 });
