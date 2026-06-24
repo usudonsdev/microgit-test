@@ -1,7 +1,42 @@
 [
   {
-    "timestamp": "2026-06-23T15:14:05.849Z",
+    "timestamp": "2026-06-24T04:30:06.769Z",
     "level": "INFO",
     "message": "MicroGit 拡張機能が完全に目覚めました！"
+  },
+  {
+    "timestamp": "2026-06-24T04:30:06.832Z",
+    "level": "INFO",
+    "message": "前回のアクティブマイクロブランチを引き継ぎました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-24T04:35:06.494Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Documents\\microgit-test\\articles\\523b53216ae3b7.md"
+  },
+  {
+    "timestamp": "2026-06-24T04:35:06.822Z",
+    "level": "INFO",
+    "message": "マイクロブランチを前進させました: mb-1"
+  },
+  {
+    "timestamp": "2026-06-24T04:35:06.822Z",
+    "level": "INFO",
+    "message": "シャドウコミット成功: articles\\523b53216ae3b7.md (Tag: mb-1)"
+  },
+  {
+    "timestamp": "2026-06-24T04:35:06.881Z",
+    "level": "INFO",
+    "message": "【現在のツリー状態】\n[\n  {\n    \"hash\": \"fb0268c7e79c49b781c85797f5ca092d1df9980e\",\n    \"parents\": [\n      \"2441d11f53378fe31c72ddc33147fe2f18b3f171\"\n    ],\n    \"tags\": [\n      \"mb-1\"\n    ],\n    \"subject\": \"micro: saved articles\\\\523b53216ae3b7.md at 2026-06-24T04:35:06.611Z\",\n    \"timestamp\": \"2026/6/24 13:35:06\"\n  },\n  {\n    \"hash\": \"2441d11f53378fe31c72ddc33147fe2f18b3f171\",\n    \"parents\": [],\n    \"tags\": [],\n    \"subject\": \"micro: saved src\\\\test\\\\suite\\\\extension.test.ts at 2026-06-23T09:18:56.021Z\",\n    \"timestamp\": \"2026/6/23 18:18:56\"\n  }\n]"
+  },
+  {
+    "timestamp": "2026-06-24T04:35:07.241Z",
+    "level": "INFO",
+    "message": "ファイル保存イベントを検知しました: c:\\Users\\ssliv\\Documents\\microgit-test\\articles\\523b53216ae3b7.md"
+  },
+  {
+    "timestamp": "2026-06-24T04:35:07.470Z",
+    "level": "INFO",
+    "message": "変更がないためコミットをスキップしました: articles\\523b53216ae3b7.md"
   }
 ]
