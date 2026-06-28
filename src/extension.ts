@@ -411,82 +411,56 @@ function getMicroGraphData(shadowRepoPath: string): any[] {
  * Webviewに表示するHTMLコンテンツを生成する
  */
 function getWebviewContent(graphData: any[]): string {
-    if (!graphData || graphData.length === 0) {
-        return `<html><body style="background-color:#1e1e1e;color:#fff;padding:20px;"><h3>⏱️ MicroGit</h3>履歴がまだありません。</body></html>`;
-    }
-
-    const currentActiveTag = currentMicroBranchTag;
-
-    // Webview上のJavaScript側にデータを安全に渡すため、JSON文字列化
     const jsonCommits = JSON.stringify(graphData);
-
+    
     return `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
-    <meta charset="UTF-8">
     <style>
-        body { font-family: sans-serif; padding: 10px; color: var(--vscode-editor-foreground); background: var(--vscode-editor-background); }
-        h3 { margin-bottom: 15px; border-bottom: 1px solid var(--vscode-widget-border); padding-bottom: 5px; }
-        .commit-node { 
-            padding: 10px; margin: 8px 0; 
-            border: 1px solid var(--vscode-widget-border); 
-            border-radius: 4px; background: var(--vscode-sideBar-background);
-            display: flex; justify-content: space-between; align-items: center;
-            transition: all 0.2s ease;
-        }
-        .commit-node:hover { border-color: var(--vscode-button-background); }
-        .active-head { border-left: 6px solid #28a745; background: rgba(40, 167, 69, 0.1); }
-        .tag-badge { background: #007acc; color: white; padding: 2px 6px; border-radius: 3px; font-size: 11px; font-weight: bold; margin-left: 5px; }
-        .jump-btn { background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; padding: 6px 12px; border-radius: 3px; cursor: pointer; font-weight: 500; }
-        .jump-btn:hover { background: var(--vscode-button-hoverBackground); }
-        .meta-text { color: var(--vscode-descriptionForeground); font-size: 12px; margin-top: 4px; }
+        body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
+        .node { cursor: pointer; fill: #007acc; }
+        .node:hover { fill: #ffffff; }
+        .text { fill: #ccc; font-size: 12px; pointer-events: none; }
     </style>
 </head>
 <body>
-    <h3>MicroGit タイムライン履歴</h3>
-    <div id="timeline"></div>
+    <h3>MicroGit リッチグラフ</h3>
+    <svg id="graph-area" width="100%" height="800px"></svg>
 
     <script>
         const vscode = acquireVsCodeApi();
         const commits = ${jsonCommits};
-        const currentTag = "${currentActiveTag}";
-        
-        const container = document.getElementById('timeline');
-        container.innerHTML = ''; 
+        const svg = document.getElementById('graph-area');
 
-        commits.forEach(commit => {
-            const isCurrent = commit.tags.includes(currentTag);
-            const node = document.createElement('div');
-            node.className = \`commit-node \${isCurrent ? 'active-head' : ''}\`;
-            
-            const tagsHtml = commit.tags.map(t => \`<span class="tag-badge">\${t}</span>\`).join(' ');
+        commits.forEach((commit, i) => {
+            const x = 50; // 固定のX座標
+            const y = i * 60 + 30; // 60px間隔で配置
 
-            node.innerHTML = \`
-                <div>
-                    <strong>\${commit.hash.substring(0, 7)}</strong> \${tagsHtml}
-                    <div class="meta-text">\${commit.subject}</div>
-                    <div class="meta-text" style="font-size:10px; opacity:0.7;">🕒 \${commit.timestamp}</div>
-                </div>
-                <div>
-                    <button class="jump-btn" onclick="jump('\${commit.hash}')">ジャンプ</button>
-                </div>
-            \`;
-            container.appendChild(node);
+            // コミットの丸を描画
+            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            circle.setAttribute("cx", x);
+            circle.setAttribute("cy", y);
+            circle.setAttribute("r", "8");
+            circle.setAttribute("class", "node");
+            circle.onclick = () => {
+                vscode.postMessage({ command: 'jumpToCommit', hash: commit.hash });
+            };
+            svg.appendChild(circle);
+
+            // コミットメッセージを表示
+            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+            text.setAttribute("x", x + 20);
+            text.setAttribute("y", y + 5);
+            text.setAttribute("class", "text");
+            text.textContent = commit.hash.substring(0, 7) + " - " + commit.subject;
+            svg.appendChild(text);
         });
-
-        function jump(hash) {
-            vscode.postMessage({
-                command: 'jumpToCommit',
-                hash: hash
-            });
-        }
     </script>
 </body>
 </html>
     `;
 }
-
 /**
  * 拡張機能が無効化される際に呼び出されるライフサイクル関数
  */
