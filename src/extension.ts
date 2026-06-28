@@ -410,37 +410,75 @@ function getMicroGraphData(shadowRepoPath: string): any[] {
 /**
  * Webviewに表示するHTMLコンテンツを生成する
  */
+/**
+ * Webviewに表示するHTMLコンテンツを生成する（SVGグラフ描画版）
+ */
 function getWebviewContent(graphData: any[]): string {
-    const jsonCommits = JSON.stringify(graphData);
-    
+    if (!graphData || graphData.length === 0) {
+        return `<html><body style="background-color:#1e1e1e;color:#fff;padding:20px;"><h3>⏱️ MicroGit</h3>履歴がまだありません。</body></html>`;
+    }
+
+    // 表示順を逆転（新しい順）
+    const commits = [...graphData].reverse();
+    const jsonCommits = JSON.stringify(commits);
+
     return `
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <style>
         body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
-        .node { cursor: pointer; fill: #007acc; }
-        .node:hover { fill: #ffffff; }
-        .text { fill: #ccc; font-size: 12px; pointer-events: none; }
+        h3 { color: #888; }
+        .node { cursor: pointer; fill: #007acc; transition: 0.2s; }
+        .node:hover { fill: #fff; r: 10; }
+        .line { stroke: #555; stroke-width: 3px; }
+        .text { fill: #ccc; font-size: 13px; pointer-events: none; }
+        .tag-text { fill: #007acc; font-size: 11px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <h3>MicroGit リッチグラフ</h3>
-    <svg id="graph-area" width="100%" height="800px"></svg>
+    <h3>MicroGit タイムライン履歴</h3>
+    <svg id="graph-area" width="100%" height="${commits.length * 60 + 50}px"></svg>
 
     <script>
         const vscode = acquireVsCodeApi();
         const commits = ${jsonCommits};
         const svg = document.getElementById('graph-area');
+        
+        const nodeMap = new Map();
+        const xOffset = 40;
+        const yInterval = 60;
 
-        commits.forEach((commit, i) => {
-            const x = 50; // 固定のX座標
-            const y = i * 60 + 30; // 60px間隔で配置
+        // 1. 各コミットの座標をマッピング
+        commits.forEach((c, i) => {
+            nodeMap.set(c.hash, { x: xOffset, y: i * yInterval + 30 });
+        });
 
-            // コミットの丸を描画
+        // 2. 線を描画 (親へ向かう線)
+        commits.forEach((c) => {
+            const childPos = nodeMap.get(c.hash);
+            c.parents.forEach(pHash => {
+                const parentPos = nodeMap.get(pHash);
+                if (parentPos) {
+                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                    line.setAttribute("x1", childPos.x);
+                    line.setAttribute("y1", childPos.y);
+                    line.setAttribute("x2", parentPos.x);
+                    line.setAttribute("y2", parentPos.y);
+                    line.setAttribute("class", "line");
+                    svg.appendChild(line);
+                }
+            });
+        });
+
+        // 3. ノードとラベルを描画
+        commits.forEach((commit) => {
+            const pos = nodeMap.get(commit.hash);
+            
+            // 丸
             const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            circle.setAttribute("cx", x);
-            circle.setAttribute("cy", y);
+            circle.setAttribute("cx", pos.x);
+            circle.setAttribute("cy", pos.y);
             circle.setAttribute("r", "8");
             circle.setAttribute("class", "node");
             circle.onclick = () => {
@@ -448,19 +486,30 @@ function getWebviewContent(graphData: any[]): string {
             };
             svg.appendChild(circle);
 
-            // コミットメッセージを表示
+            // メッセージ
             const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            text.setAttribute("x", x + 20);
-            text.setAttribute("y", y + 5);
+            text.setAttribute("x", pos.x + 20);
+            text.setAttribute("y", pos.y + 5);
             text.setAttribute("class", "text");
             text.textContent = commit.hash.substring(0, 7) + " - " + commit.subject;
             svg.appendChild(text);
+
+            // タグ
+            if (commit.tags.length > 0) {
+                const tagText = document.createElementNS("http://www.w3.org/2000/svg", "text");
+                tagText.setAttribute("x", pos.x + 20);
+                tagText.setAttribute("y", pos.y + 20);
+                tagText.setAttribute("class", "tag-text");
+                tagText.textContent = "[" + commit.tags.join(", ") + "]";
+                svg.appendChild(tagText);
+            }
         });
     </script>
 </body>
 </html>
     `;
 }
+
 /**
  * 拡張機能が無効化される際に呼び出されるライフサイクル関数
  */
