@@ -416,6 +416,9 @@ class ExtensionLogger {
  */
 function getMicroGraphData(shadowRepoPath: string): any[] {
     try {
+        const hasCommits = execSync('git rev-parse --verify HEAD', { cwd: shadowRepoPath, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
+        if (!hasCommits) { return []; }
+
         const stdout = execSync('git log --all --topo-order --pretty=format:"%H|%P|%d|%s|%ct"', { cwd: shadowRepoPath }).toString();
         const lines = stdout.trim().split('\n').filter(Boolean);
         return lines.map(line => {
