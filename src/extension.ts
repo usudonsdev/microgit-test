@@ -265,14 +265,20 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
     // 保存された最新状態のファイルをシャドウ領域にコピー
     try { fs.copyFileSync(savedFilePath, shadowFilePath); } catch { return; }
 
-    // 現在のHEADのハッシュを取得（初回コミット時は空になる）
+    // HEADと現在のタグが一致しているか（歴史を直列に前進させるか、過去から分岐させるか）を判定
     let headHash = '';
     let isForwarding = false;
     try {
-        headHash = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
-        const tagHash = execSync(`git rev-parse ${currentMicroBranchTag}`, { cwd: shadowRepoPath }).toString().trim();
-        if (headHash === tagHash) { isForwarding = true; }
-    } catch {}
+        // 💡 修正：現在のHEADが存在するかどうかをまず確認する
+        const hasCommits = execSync('git rev-parse --verify HEAD', { cwd: shadowRepoPath, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
+        if (hasCommits) {
+            headHash = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
+            const tagHash = execSync(`git rev-parse ${currentMicroBranchTag}`, { cwd: shadowRepoPath }).toString().trim();
+            if (headHash === tagHash) { isForwarding = true; }
+        }
+    } catch {
+        // HEADがまだない（初回コミット時）はここを通るため、headHash = '' / isForwarding = false のまま安全に次へ進む
+    }
 
     const timestamp = new Date().toISOString();
     const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
