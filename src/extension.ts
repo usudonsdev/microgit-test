@@ -67,12 +67,13 @@ export function activate(context: vscode.ExtensionContext) {
 async function generateMicroGitFileLog(rootPath: string, savedFilePath: string): Promise<void> {
     const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
     const fileName = path.basename(savedFilePath);
-    const logFilePath = path.join(rootPath, '.microgit_logs');
+    // 💡 修正：.microgit_logs をフォルダパスとし、その中にファイルを作る
+    const logFolderPath = path.join(rootPath, '.microgit_logs');
+    const logFilePath = path.join(logFolderPath, 'timeline.log'); // または `${fileName}.log` など
 
     try {
         if (!fs.existsSync(shadowRepoPath)) { return; }
 
-        // 壁打ちメモにあった「git log --graph --all」をここで実行し、Gitが認識するすべての分岐を回収する
         const logOutput = runGitCommandAbsolute(shadowRepoPath, [
             'log',
             '--graph',
@@ -84,12 +85,14 @@ async function generateMicroGitFileLog(rootPath: string, savedFilePath: string):
 
         const logContent = `[MicroGit タイムライン履歴 - ${fileName}]\n同期時刻: ${new Date().toLocaleString()}\n現在のタグ: ${currentMicroBranchTag}\n\n${logOutput}`;
         
-        // フォルダがなければ作成して書き込み
-        if (!fs.existsSync(path.dirname(logFilePath))) {
-            fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
+        // 💡 フォルダがなければ作成
+        if (!fs.existsSync(logFolderPath)) {
+            fs.mkdirSync(logFolderPath, { recursive: true });
         }
+        
+        // 💡 フォルダ直下のファイルに対して書き込み
         fs.writeFileSync(logFilePath, logContent, 'utf8');
-        ExtensionLogger.log(`.microgit_logs を自動更新しました (${fileName})`);
+        ExtensionLogger.log(`.microgit_logs/timeline.log を自動更新しました (${fileName})`);
     } catch (err: any) {
         ExtensionLogger.log(`ログ生成に失敗しました: ${err.message}`, 'ERROR');
     }
