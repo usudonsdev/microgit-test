@@ -246,9 +246,7 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
 
 /**
  * ファイル保存時に裏側（シャドウ領域）で自動コミットおよびタグの制御を行う関数
- * 大元リポジトリへの自動同期（Push）も担う。
- * * @param mainRepoPath - ワークスペースのルートパス
- * @param savedFilePath - 今回保存されたファイルの絶対パス
+ * 分岐時にはコミットツリーを正しく配管し、真の歴史ツリーを形成します。
  */
 async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Promise<void> {
     const shadowRepoPath = path.join(mainRepoPath, '.microgit_shadow');
@@ -267,10 +265,11 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
     // 保存された最新状態のファイルをシャドウ領域にコピー
     try { fs.copyFileSync(savedFilePath, shadowFilePath); } catch { return; }
 
-    // HEADと現在のタグが一致しているか（歴史を直列に前進させるか、過去から分岐させるか）を判定
+    // 現在のHEADのハッシュを取得（初回コミット時は空になる）
+    let headHash = '';
     let isForwarding = false;
     try {
-        const headHash = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
+        headHash = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
         const tagHash = execSync(`git rev-parse ${currentMicroBranchTag}`, { cwd: shadowRepoPath }).toString().trim();
         if (headHash === tagHash) { isForwarding = true; }
     } catch {}
@@ -279,23 +278,43 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
     const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
 
     try {
+        // ファイルをインデックスに追加
         execSync(`git add "${relativeFilePath}"`, { cwd: shadowRepoPath });
-        execSync(`git -c user.name="MicroBot" -c user.email="bot@micro.internal" commit -m "${commitMessage}"`, { cwd: shadowRepoPath });
+
+        // 💡 【核心の修正】通常の git commit を使わず、コミットオブジェクトを手動構築する
+        // これにより、過去のどの地点からでも綺麗な「分岐（マルチペアレント・マルチブランチ）」が可能になります
+        const treeHash = execSync('git write-tree', { cwd: shadowRepoPath }).toString().trim();
+        
+        let commitHash = '';
+        if (!headHash) {
+            // 初回コミット（親なし）
+            commitHash = execSync(`git commit-tree ${treeHash} -m "${commitMessage}"`, { cwd: shadowRepoPath }).toString().trim();
+        } else {
+            // 親コミット（headHash）を明示的に指定してコミットツリーを作成
+            commitHash = execSync(`git commit-tree ${treeHash} -p ${headHash} -m "${commitMessage}"`, { cwd: shadowRepoPath }).toString().trim();
+        }
+
+        // HEADポインタをこの新しいコミットに移動（デタッチド状態の維持・制御）
+        execSync(`git update-ref HEAD ${commitHash}`, { cwd: shadowRepoPath });
 
         if (isForwarding) {
             // 直列前進：既存のタグを新しいコミットへ付け替える
-            execSync(`git tag -f ${currentMicroBranchTag}`, { cwd: shadowRepoPath });
+            execSync(`git tag -f ${currentMicroBranchTag} ${commitHash}`, { cwd: shadowRepoPath });
         } else {
             // 分岐：新しい連番のタグを生成して付与する
             const nextTag = getNextTagCode(shadowRepoPath);
-            execSync(`git tag ${nextTag}`, { cwd: shadowRepoPath });
+            execSync(`git tag ${nextTag} ${commitHash}`, { cwd: shadowRepoPath });
             currentMicroBranchTag = nextTag;
         }
+
+        // 💡 micro-history ブランチ自体も常に現在の最新コミット（または全てのタグ）を指すように安全に更新
+        execSync(`git update-ref refs/heads/micro-history ${commitHash}`, { cwd: shadowRepoPath });
 
         // 大元リポジトリのoriginを読み取り、自動プッシュを試みる
         try {
             const remoteUrl = execSync('git config --get remote.origin.url', { cwd: mainRepoPath }).toString().trim();
             if (remoteUrl) {
+                // 分岐履歴がすべてリモートに届くよう、ブランチだけでなく--tagsを付与して安全にプッシュ
                 execSync(`git push "${remoteUrl}" micro-history --tags -f`, { cwd: shadowRepoPath, stdio: 'ignore' });
                 vscode.window.setStatusBarMessage(`[MicroGit] 大元リモートへ同期完了 (${currentMicroBranchTag})`, 4000);
             } else {
@@ -308,8 +327,8 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
         const graphData = getMicroGraphData(shadowRepoPath);
         ExtensionLogger.log(`【現在のツリー状態】\n${JSON.stringify(graphData, null, 2)}`);
 
-    } catch {
-        // コピーしたファイルに差分がなかった場合（git commitが失敗した場合）はスキップ
+    } catch (err: any) {
+        ExtensionLogger.log(`シャドウコミットに失敗しました: ${err.message}`, 'ERROR');
     }
 }
 
