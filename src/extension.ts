@@ -29,7 +29,7 @@ export function activate(context: vscode.ExtensionContext) {
         }
     }
 
-    /**
+/**
      * ファイル保存イベントのリスナー
      * ファイルが保存されるたびに裏側でシャドウコミットを実行する。
      */
@@ -51,9 +51,59 @@ export function activate(context: vscode.ExtensionContext) {
             return; 
         }
 
+        // 1. シャドウコミットを実行
         await runShadowCommit(rootPath, document.fileName);
+        
+        // 2. 【最優先修正】Show graphを待たずに、その場で .microgit_logs を自動生成！
+        await generateMicroGitFileLog(rootPath, document.fileName);
+
         await ExtensionLogger.exportLogFile(rootPath);
     });
+
+
+    /**
+ * 保存されたファイル名に応じて動的に .microgit_logs を自動生成する
+ */
+async function generateMicroGitFileLog(rootPath: string, savedFilePath: string): Promise<void> {
+    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const fileName = path.basename(savedFilePath);
+    const logFilePath = path.join(rootPath, '.microgit_logs');
+
+    try {
+        if (!fs.existsSync(shadowRepoPath)) { return; }
+
+        // 壁打ちメモにあった「git log --graph --all」をここで実行し、Gitが認識するすべての分岐を回収する
+        const logOutput = runGitCommandAbsolute(shadowRepoPath, [
+            'log',
+            '--graph',
+            '--all',
+            '--oneline',
+            '--decorate',
+            '--date=short'
+        ]);
+
+        const logContent = `[MicroGit タイムライン履歴 - ${fileName}]\n同期時刻: ${new Date().toLocaleString()}\n現在のタグ: ${currentMicroBranchTag}\n\n${logOutput}`;
+        
+        // フォルダがなければ作成して書き込み
+        if (!fs.existsSync(path.dirname(logFilePath))) {
+            fs.mkdirSync(path.dirname(logFilePath), { recursive: true });
+        }
+        fs.writeFileSync(logFilePath, logContent, 'utf8');
+        ExtensionLogger.log(`.microgit_logs を自動更新しました (${fileName})`);
+    } catch (err: any) {
+        ExtensionLogger.log(`ログ生成に失敗しました: ${err.message}`, 'ERROR');
+    }
+}
+
+/**
+ * 安全に絶対パスを保証してGitコマンドを実行するヘルパー
+ */
+function runGitCommandAbsolute(repoPath: string, args: string[]): string {
+    const safePath = `"${repoPath.replace(/"/g, '\\"')}"`;
+    const command = `git -C ${safePath} ${args.join(' ')}`;
+    return execSync(command, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).toString();
+}
+
 
     /**
      * 手動タイムトラベルコマンド（コマンドパレット用）
