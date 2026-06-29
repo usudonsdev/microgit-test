@@ -267,70 +267,70 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
     const relativeFilePath = path.relative(mainRepoPath, savedFilePath);
     const shadowFilePath = path.join(shadowRepoPath, relativeFilePath);
 
+    // 1. シャドウ環境の初期化（安全策）
     if (!fs.existsSync(shadowRepoPath)) {
         fs.mkdirSync(shadowRepoPath, { recursive: true });
-        try { execSync('git init -b micro-history', { cwd: shadowRepoPath, stdio: 'ignore' }); } catch {}
-        try { fs.appendFileSync(path.join(mainRepoPath, '.gitignore'), '\n.microgit_shadow/\n.microgit_logs/\n'); } catch {}
+        execSync('git init -b micro-history', { cwd: shadowRepoPath, stdio: 'ignore' });
     }
-
     if (!fs.existsSync(path.dirname(shadowFilePath))) { fs.mkdirSync(path.dirname(shadowFilePath), { recursive: true }); }
-
-    try { fs.copyFileSync(savedFilePath, shadowFilePath); } catch { return; }
-
-    let headHash = '';
-    let isForwarding = false;
-    try {
-        const hasCommits = execSync('git rev-parse --verify HEAD', { cwd: shadowRepoPath, stdio: ['pipe', 'pipe', 'ignore'] }).toString().trim();
-        if (hasCommits) {
-            headHash = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
-            const tagHash = execSync(`git rev-parse ${currentMicroBranchTag}`, { cwd: shadowRepoPath }).toString().trim();
-            if (headHash === tagHash) { isForwarding = true; }
-        }
-    } catch {
-        // 初回コミット時は安全に次へ
-    }
-
-    const timestamp = new Date().toISOString();
-    const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
+    try { fs.copyFileSync(savedFilePath, shadowFilePath); } catch (e) { return; }
 
     try {
         execSync(`git add "${relativeFilePath}"`, { cwd: shadowRepoPath });
+        const currentTreeHash = execSync('git write-tree', { cwd: shadowRepoPath }).toString().trim();
 
-        const treeHash = execSync('git write-tree', { cwd: shadowRepoPath }).toString().trim();
-        
-        let commitHash = '';
-        if (!headHash) {
-            commitHash = execSync(`git commit-tree ${treeHash} -m "${commitMessage}"`, { cwd: shadowRepoPath }).toString().trim();
-        } else {
-            commitHash = execSync(`git commit-tree ${treeHash} -p ${headHash} -m "${commitMessage}"`, { cwd: shadowRepoPath }).toString().trim();
+        // 2. コミットが一つでもあるか確認
+        let hasCommits = false;
+        try {
+            execSync('git rev-parse --verify HEAD', { cwd: shadowRepoPath, stdio: 'ignore' });
+            hasCommits = true;
+        } catch {}
+
+        let currentHead = '';
+        if (hasCommits) {
+            currentHead = execSync('git rev-parse HEAD', { cwd: shadowRepoPath }).toString().trim();
         }
 
-        execSync(`git update-ref HEAD ${commitHash}`, { cwd: shadowRepoPath });
+        // 3. Ctrl+Z検知：同じツリーを持つ過去コミットを探す
+        let matchingCommit = '';
+        if (hasCommits) {
+            const logOutput = execSync('git log --all --format="%H %T"', { cwd: shadowRepoPath }).toString().trim().split('\n');
+            for (const line of logOutput) {
+                const [cHash, tHash] = line.split(' ');
+                if (tHash === currentTreeHash) {
+                    matchingCommit = cHash;
+                    break;
+                }
+            }
+        }
 
-        if (isForwarding) {
-            execSync(`git tag -f ${currentMicroBranchTag} ${commitHash}`, { cwd: shadowRepoPath });
-        } else {
+        // 4. ワープ処理または新規作成
+        if (matchingCommit && currentHead !== matchingCommit) {
+            // 過去に戻る
+            execSync(`git checkout ${matchingCommit}`, { cwd: shadowRepoPath, stdio: 'ignore' });
+            ExtensionLogger.log(`[Ctrl+Z検知] 過去の状態へ戻りました: ${matchingCommit.substring(0,7)}`);
+            return; 
+        } else if (matchingCommit && currentHead === matchingCommit) {
+            return; // 変更なし
+        }
+
+        // 新規作成
+        const timestamp = new Date().toISOString();
+        const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
+        const parentArg = currentHead ? `-p ${currentHead}` : '';
+        const commitHash = execSync(`git commit-tree ${currentTreeHash} ${parentArg} -m "${commitMessage}"`, { cwd: shadowRepoPath }).toString().trim();
+        
+        execSync(`git update-ref HEAD ${commitHash}`, { cwd: shadowRepoPath });
+        
+        // 履歴を分岐させるロジック
+        if (currentHead && currentHead !== execSync(`git rev-parse ${currentMicroBranchTag}`, { cwd: shadowRepoPath }).toString().trim()) {
             const nextTag = getNextTagCode(shadowRepoPath);
             execSync(`git tag ${nextTag} ${commitHash}`, { cwd: shadowRepoPath });
             currentMicroBranchTag = nextTag;
+        } else {
+            execSync(`git tag -f ${currentMicroBranchTag} ${commitHash}`, { cwd: shadowRepoPath });
+            execSync(`git update-ref refs/heads/micro-history ${commitHash}`, { cwd: shadowRepoPath });
         }
-
-        execSync(`git update-ref refs/heads/micro-history ${commitHash}`, { cwd: shadowRepoPath });
-
-        try {
-            const remoteUrl = execSync('git config --get remote.origin.url', { cwd: mainRepoPath }).toString().trim();
-            if (remoteUrl) {
-                execSync(`git push "${remoteUrl}" micro-history --tags -f`, { cwd: shadowRepoPath, stdio: 'ignore' });
-                vscode.window.setStatusBarMessage(`[MicroGit] 大元リモートへ同期完了 (${currentMicroBranchTag})`, 4000);
-            } else {
-                vscode.window.setStatusBarMessage(`[MicroGit] 保存完了 (${currentMicroBranchTag})`, 3000);
-            }
-        } catch (pushErr) {
-            vscode.window.setStatusBarMessage(`[MicroGit] 保存完了 (リモート未同期)`, 3000);
-        }
-
-        const graphData = getMicroGraphData(shadowRepoPath);
-        ExtensionLogger.log(`【現在のツリー状態】\n${JSON.stringify(graphData, null, 2)}`);
 
     } catch (err: any) {
         ExtensionLogger.log(`シャドウコミットに失敗しました: ${err.message}`, 'ERROR');
