@@ -99,6 +99,20 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     /**
+     * ログを手動でエクスポートするコマンド（エラーを吐いていたやつをここに登録！）
+     */
+    const exportLogsCommand = vscode.commands.registerCommand('microgit.exportLogs', async () => {
+        if (!workspaceFolders) { return; }
+        const rootPath = workspaceFolders[0].uri.fsPath;
+        try {
+            await ExtensionLogger.exportLogFile(rootPath);
+            vscode.window.showInformationMessage('[MicroGit] ログファイルを正常にエクスポートしました！');
+        } catch (err: any) {
+            vscode.window.showErrorMessage(`ログのエクスポートに失敗しました: ${err.message}`);
+        }
+    });
+
+    /**
      * GUI（グラフビューア）を表示するコマンド
      */
     const showGraphCommand = vscode.commands.registerCommand('microgit.showGraph', async () => {
@@ -143,6 +157,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(jumpCommand);
     context.subscriptions.push(pullHistoryCommand);
+    context.subscriptions.push(exportLogsCommand); // 忘れずにプッシュ
     context.subscriptions.push(showGraphCommand);
 }
 
@@ -408,10 +423,7 @@ function getMicroGraphData(shadowRepoPath: string): any[] {
 }
 
 /**
- * Webviewに表示するHTMLコンテンツを生成する
- */
-/**
- * Webviewに表示するHTMLコンテンツを生成する（SVGグラフ描画版）
+ * Webviewに表示するHTMLコンテンツを生成する（SVGマルチレーン対応版）
  */
 function getWebviewContent(graphData: any[]): string {
     if (!graphData || graphData.length === 0) {
@@ -431,7 +443,7 @@ function getWebviewContent(graphData: any[]): string {
         h3 { color: #888; }
         .node { cursor: pointer; fill: #007acc; transition: 0.2s; }
         .node:hover { fill: #fff; r: 10; }
-        .line { stroke: #555; stroke-width: 3px; }
+        .line { stroke: #555; stroke-width: 3px; fill: none; }
         .text { fill: #ccc; font-size: 13px; pointer-events: none; }
         .tag-text { fill: #007acc; font-size: 11px; font-weight: bold; }
     </style>
@@ -446,15 +458,30 @@ function getWebviewContent(graphData: any[]): string {
         const svg = document.getElementById('graph-area');
         
         const nodeMap = new Map();
-        const xOffset = 40;
         const yInterval = 60;
+        const branchLanes = new Map();
+        let currentMaxLane = 0;
 
-        // 1. 各コミットの座標をマッピング
+        // 1. 各コミットのレーンと座標をマッピング（分岐時の横ずれを計算）
         commits.forEach((c, i) => {
-            nodeMap.set(c.hash, { x: xOffset, y: i * yInterval + 30 });
+            let lane = 0;
+            if (i > 0) {
+                const prevCommit = commits[i - 1];
+                // 直前のコミットが親に含まれていない＝新しい世界線（枝分かれ）
+                if (!c.parents.includes(prevCommit.hash)) {
+                    currentMaxLane++;
+                    lane = currentMaxLane;
+                } else {
+                    lane = branchLanes.get(prevCommit.hash) || 0;
+                }
+            }
+            branchLanes.set(c.hash, lane);
+            
+            const xPosition = 40 + (lane * 35); 
+            nodeMap.set(c.hash, { x: xPosition, y: i * yInterval + 30 });
         });
 
-        // 2. 線を描画 (親へ向かう線)
+        // 2. 線を描画 (親子を対角線で繋ぐ)
         commits.forEach((c) => {
             const childPos = nodeMap.get(c.hash);
             c.parents.forEach(pHash => {
