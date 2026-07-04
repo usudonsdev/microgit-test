@@ -3,7 +3,7 @@
   "displayName": "MicroGit",
   "version": "3.1.0",
   "publisher": "usudonsdev",
-  "description": "保存と同時に裏で自動コミットする、ブランチ単位のタイムトラベルツール",
+  "description": "個人開発向け。保存と同時にマイクロ履歴を記録し、メインリポジトリのコミット経由で共有できるタイムトラベルツール",
   "repository": {
     "type": "git",
     "url": "https://github.com/usudonsdev/microgit"
