@@ -13,6 +13,8 @@ let currentMicroBranchTag: string = 'mb-1';
 let extensionContext: vscode.ExtensionContext | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let saveChain: Promise<void> = Promise.resolve();
+/** 直前に観測したブランチ名（対象ブランチへの復帰検知用） */
+let lastKnownBranch: string | undefined;
 
 /**
  * 拡張機能がアクティブになった際に呼び出されるエントリポイント
@@ -264,25 +266,43 @@ async function setEnabled(enabled: boolean, targetBranch?: string): Promise<void
 }
 
 /**
- * 対象ブランチ以外ではシャドウ成果物を削除する。
+ * 対象ブランチ以外の「名前付きブランチ」ではシャドウを作業ツリーから退避する。
+ * 対象ブランチへ戻ったら退避分を復元する（削除しないのでマイクロ履歴は消えない）。
+ * detached HEAD（過去コミット参照）では触らず、大元コミットに含まれるシャドウを優先する。
  * 戻り値は「自動記録してよい状態」（有効かつ対象ブランチ上）のときのみ true。
  */
 function syncBranchPolicy(rootPath: string): boolean {
     const targetBranch = getTargetBranch();
     const currentBranch = getCurrentBranch(rootPath);
+    const onTarget = Boolean(targetBranch && currentBranch && currentBranch === targetBranch);
+    const onOtherNamedBranch = Boolean(
+        targetBranch && currentBranch && currentBranch !== 'HEAD' && currentBranch !== targetBranch
+    );
+    const wasOnTarget = Boolean(targetBranch && lastKnownBranch === targetBranch);
 
-    if (targetBranch && currentBranch && currentBranch !== 'HEAD' && currentBranch !== targetBranch) {
-        removeMicroGitArtifacts(rootPath);
+    if (onOtherNamedBranch && targetBranch) {
+        stashMicroGitArtifacts(rootPath, targetBranch);
         ExtensionLogger.log(
-            `対象ブランチ以外のためシャドウを削除しました（対象: ${targetBranch}, 現在: ${currentBranch}）`,
+            `対象ブランチ以外のためシャドウを退避しました（対象: ${targetBranch}, 現在: ${currentBranch}）`,
             'WARN'
         );
+        lastKnownBranch = currentBranch;
         updateStatusBar(rootPath);
         return false;
     }
 
+    if (onTarget && targetBranch && !wasOnTarget) {
+        restoreMicroGitArtifacts(rootPath, targetBranch);
+        const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+        if (fs.existsSync(shadowRepoPath)) {
+            currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
+            ExtensionLogger.log(`対象ブランチ復帰: マイクロブランチ ${currentMicroBranchTag} を復元しました`);
+        }
+    }
+
+    lastKnownBranch = currentBranch;
     updateStatusBar(rootPath);
-    return Boolean(isEnabled() && targetBranch && currentBranch && currentBranch === targetBranch);
+    return Boolean(isEnabled() && onTarget);
 }
 
 function isOnTargetBranch(rootPath: string): boolean {
@@ -295,16 +315,57 @@ function isActiveOnCurrentBranch(rootPath: string): boolean {
     return isEnabled() && isOnTargetBranch(rootPath);
 }
 
-function removeMicroGitArtifacts(rootPath: string): void {
+function getArtifactStashRoot(targetBranch: string): string {
+    if (!extensionContext) {
+        throw new Error('Extension context is not initialized');
+    }
+    const safeBranch = targetBranch.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const base = extensionContext.storageUri?.fsPath
+        ?? path.join(extensionContext.globalStorageUri.fsPath, 'default-workspace');
+    return path.join(base, 'branch-stash', safeBranch);
+}
+
+function moveDirectory(src: string, dest: string): void {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (fs.existsSync(dest)) {
+        fs.rmSync(dest, { recursive: true, force: true });
+    }
+    try {
+        fs.renameSync(src, dest);
+    } catch {
+        fs.cpSync(src, dest, { recursive: true });
+        fs.rmSync(src, { recursive: true, force: true });
+    }
+}
+
+/** 他ブランチへ混入しないよう、作業ツリーから拡張機能ストレージへ退避する */
+function stashMicroGitArtifacts(rootPath: string, targetBranch: string): void {
+    const stashRoot = getArtifactStashRoot(targetBranch);
     for (const dirName of ARTIFACT_DIRS) {
-        const artifactPath = path.join(rootPath, dirName);
-        if (!fs.existsSync(artifactPath)) { continue; }
+        const src = path.join(rootPath, dirName);
+        if (!fs.existsSync(src)) { continue; }
         try {
-            fs.rmSync(artifactPath, { recursive: true, force: true });
-            ExtensionLogger.log(`削除しました: ${dirName}`);
+            moveDirectory(src, path.join(stashRoot, dirName));
+            ExtensionLogger.log(`退避しました: ${dirName}`);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
-            ExtensionLogger.log(`${dirName} の削除に失敗しました: ${message}`, 'ERROR');
+            ExtensionLogger.log(`${dirName} の退避に失敗しました: ${message}`, 'ERROR');
+        }
+    }
+}
+
+/** 対象ブランチ復帰時に、退避していたマイクロ履歴を作業ツリーへ戻す */
+function restoreMicroGitArtifacts(rootPath: string, targetBranch: string): void {
+    const stashRoot = getArtifactStashRoot(targetBranch);
+    for (const dirName of ARTIFACT_DIRS) {
+        const src = path.join(stashRoot, dirName);
+        if (!fs.existsSync(src)) { continue; }
+        try {
+            moveDirectory(src, path.join(rootPath, dirName));
+            ExtensionLogger.log(`復元しました: ${dirName}`);
+        } catch (err: unknown) {
+            const message = err instanceof Error ? err.message : String(err);
+            ExtensionLogger.log(`${dirName} の復元に失敗しました: ${message}`, 'ERROR');
         }
     }
 }

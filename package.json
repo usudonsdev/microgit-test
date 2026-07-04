@@ -6,7 +6,7 @@
   "description": "保存と同時に裏で自動コミットする、ブランチ単位のタイムトラベルツール",
   "repository": {
     "type": "git",
-    "url": "https://github.com/あなたのユーザー名/リポジトリ名"
+    "url": "https://github.com/usudonsdev/microgit"
   },
   "engines": {
     "vscode": "^1.125.0"
