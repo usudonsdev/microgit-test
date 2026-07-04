@@ -13,3 +13,12 @@ vsc-extension-quickstart.md
 .microgit_logs/**
 .microgit_shadow/**
 test_dummy.py
+
+.github/**
+articles/**
+markdowns/**
+docs/**
+books/**
+**/*.vsix
+out/test/**
+src/test/**

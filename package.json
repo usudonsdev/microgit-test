@@ -1,9 +1,10 @@
 {
   "name": "microgit",
   "displayName": "MicroGit",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "publisher": "usudonsdev",
   "description": "個人開発向け。保存と同時にマイクロ履歴を記録し、メインリポジトリのコミット経由で共有できるタイムトラベルツール",
+  "license": "SEE LICENSE IN LICENCE.md",
   "repository": {
     "type": "git",
     "url": "https://github.com/usudonsdev/microgit"
@@ -76,7 +77,9 @@
     "watch": "tsc -watch -p ./",
     "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "node ./out/test/runTest.js"
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
@@ -84,6 +87,7 @@
     "@types/vscode": "^1.105.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
     "eslint": "^9.39.3",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.56.1",
