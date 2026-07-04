@@ -20,6 +20,25 @@
     "onStartupFinished"
   ],
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "microgit",
+          "title": "MicroGit",
+          "icon": "media/microgit.svg"
+        }
+      ]
+    },
+    "views": {
+      "microgit": [
+        {
+          "type": "webview",
+          "id": "microgit.sidebar",
+          "name": "Control Panel",
+          "visibility": "visible"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "microgit.toggle",
@@ -34,6 +53,10 @@
         "title": "MicroGit: Disable"
       },
       {
+        "command": "microgit.openPanel",
+        "title": "MicroGit: Open Control Panel"
+      },
+      {
         "command": "microgit.exportLogs",
         "title": "MicroGit: Export Logs"
       },
@@ -44,10 +67,6 @@
       {
         "command": "microgit.showGraph",
         "title": "MicroGit: Show Graph"
-      },
-      {
-        "command": "microgit.pullHistory",
-        "title": "MicroGit: Pull Shared History"
       }
     ]
   },

@@ -2,6 +2,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import { MicroGitUi, MicroGitUiSnapshot } from './ui';
 
 const STATE_ENABLED = 'microgit.enabled';
 const STATE_TARGET_BRANCH = 'microgit.targetBranch';
@@ -12,6 +13,7 @@ let currentMicroBranchTag: string = 'mb-1';
 
 let extensionContext: vscode.ExtensionContext | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
+let microGitUi: MicroGitUi | undefined;
 let saveChain: Promise<void> = Promise.resolve();
 /** 直前に観測したブランチ名（対象ブランチへの復帰検知用） */
 let lastKnownBranch: string | undefined;
@@ -32,6 +34,13 @@ export function activate(context: vscode.ExtensionContext) {
     statusBarItem.show();
     context.subscriptions.push(statusBarItem);
 
+    microGitUi = new MicroGitUi(context.extensionUri);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider(MicroGitUi.viewType, microGitUi, {
+            webviewOptions: { retainContextWhenHidden: true },
+        })
+    );
+
     const workspaceFolders = vscode.workspace.workspaceFolders;
     if (workspaceFolders) {
         const rootPath = workspaceFolders[0].uri.fsPath;
@@ -44,8 +53,9 @@ export function activate(context: vscode.ExtensionContext) {
             }
         }
         void ExtensionLogger.exportLogFile(rootPath);
+        refreshUi(rootPath);
     } else {
-        updateStatusBar(undefined);
+        refreshUi(undefined);
     }
 
     context.subscriptions.push(
@@ -58,6 +68,7 @@ export function activate(context: vscode.ExtensionContext) {
                 if (!isPathInsideRoot(document.fileName, rootPath)) { return; }
 
                 if (!syncBranchPolicy(rootPath)) {
+                    refreshUi(rootPath);
                     return;
                 }
 
@@ -72,9 +83,12 @@ export function activate(context: vscode.ExtensionContext) {
                     return;
                 }
 
-                await runShadowCommit(rootPath, document.fileName);
-                await generateMicroGitFileLog(rootPath, document.fileName);
+                const result = await runShadowCommit(rootPath, document.fileName);
+                if (result === 'created' || result === 'rewound') {
+                    await generateMicroGitFileLog(rootPath, document.fileName);
+                }
                 await ExtensionLogger.exportLogFile(rootPath);
+                refreshUi(rootPath);
             });
         })
     );
@@ -102,6 +116,13 @@ export function activate(context: vscode.ExtensionContext) {
                 vscode.window.showInformationMessage(`[MicroGit] 有効化しました（対象ブランチ: ${branch}）`);
                 ExtensionLogger.log(`MicroGit を有効化しました。対象ブランチ: ${branch}`);
             }
+            refreshUi(rootPath);
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('microgit.openPanel', async () => {
+            await vscode.commands.executeCommand(`${MicroGitUi.viewType}.focus`);
         })
     );
 
@@ -111,7 +132,7 @@ export function activate(context: vscode.ExtensionContext) {
             const rootPath = workspaceFolders[0].uri.fsPath;
             if (isEnabled()) {
                 vscode.window.showInformationMessage(`[MicroGit] 既に有効です（対象ブランチ: ${getTargetBranch() ?? '未設定'}）`);
-                updateStatusBar(rootPath);
+                refreshUi(rootPath);
                 return;
             }
             await vscode.commands.executeCommand('microgit.toggle');
@@ -123,7 +144,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!workspaceFolders) { return; }
             if (!isEnabled()) {
                 vscode.window.showInformationMessage('[MicroGit] 既に無効です');
-                updateStatusBar(workspaceFolders[0].uri.fsPath);
+                refreshUi(workspaceFolders[0].uri.fsPath);
                 return;
             }
             await vscode.commands.executeCommand('microgit.toggle');
@@ -135,6 +156,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             if (!syncBranchPolicy(rootPath)) {
+                refreshUi(rootPath);
                 vscode.window.showWarningMessage('MicroGit が無効、または対象ブランチ以外のためタイムトラベルできません。');
                 return;
             }
@@ -144,37 +166,7 @@ export function activate(context: vscode.ExtensionContext) {
             });
             if (!target) { return; }
             await sharedTimeTravel(target.trim(), rootPath);
-        })
-    );
-
-    context.subscriptions.push(
-        vscode.commands.registerCommand('microgit.pullHistory', async () => {
-            if (!workspaceFolders) { return; }
-            const rootPath = workspaceFolders[0].uri.fsPath;
-            if (!syncBranchPolicy(rootPath)) {
-                vscode.window.showWarningMessage('MicroGit が無効、または対象ブランチ以外のため履歴取得できません。');
-                return;
-            }
-            const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
-
-            if (!fs.existsSync(shadowRepoPath)) {
-                vscode.window.showWarningMessage('シャドウリポジトリがありません。一度ファイルを保存してください。');
-                return;
-            }
-
-            try {
-                vscode.window.setStatusBarMessage('[MicroGit] チームの履歴を取得中...', 3000);
-                const remoteUrl = runGit(rootPath, ['config', '--get', 'remote.origin.url']).trim();
-                if (!remoteUrl || !isSafeRemoteUrl(remoteUrl)) {
-                    vscode.window.showErrorMessage('安全に利用できる origin URL が設定されていません。');
-                    return;
-                }
-                runGit(shadowRepoPath, ['fetch', remoteUrl, 'micro-history:micro-history', '--tags', '-f']);
-                currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
-                vscode.window.showInformationMessage('[MicroGit] チームの最新マイクロ履歴を同期しました！');
-            } catch {
-                vscode.window.showErrorMessage('履歴の取得に失敗しました（大元に origin が設定されていない可能性があります）');
-            }
+            refreshUi(rootPath);
         })
     );
 
@@ -201,49 +193,66 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.commands.registerCommand('microgit.showGraph', async () => {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
-            if (!syncBranchPolicy(rootPath)) {
-                vscode.window.showWarningMessage('MicroGit が無効、または対象ブランチ以外のためグラフを表示できません。');
-                return;
-            }
-            const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
-
-            if (!fs.existsSync(shadowRepoPath)) {
-                vscode.window.showWarningMessage('シャドウリポジトリがまだ存在しません。ファイルを保存して履歴を作ってください。');
-                return;
-            }
-
-            const panel = vscode.window.createWebviewPanel(
-                'microgitGraph',
-                'MicroGit Graph ビューア',
-                vscode.ViewColumn.One,
-                { enableScripts: true, localResourceRoots: [] }
-            );
-
-            const graphData = getMicroGraphData(shadowRepoPath);
-            panel.webview.html = getWebviewContent(graphData);
-
-            panel.webview.onDidReceiveMessage(
-                async (message) => {
-                    if (message?.command !== 'jumpToCommit') { return; }
-                    if (typeof message.hash !== 'string' || !isSafeGitRef(message.hash)) {
-                        vscode.window.showErrorMessage('不正なコミット参照です。');
-                        return;
-                    }
-                    await vscode.commands.executeCommand('microgit.jumpToCommit', message.hash);
-                    if (!fs.existsSync(shadowRepoPath)) { return; }
-                    const updatedData = getMicroGraphData(shadowRepoPath);
-                    panel.webview.html = getWebviewContent(updatedData);
-                },
-                undefined,
-                context.subscriptions
-            );
+            syncBranchPolicy(rootPath);
+            refreshUi(rootPath);
+            microGitUi?.showGraphPanel();
         })
     );
 
     watchGitBranchChanges(context, () => {
         if (!workspaceFolders) { return; }
-        syncBranchPolicy(workspaceFolders[0].uri.fsPath);
+        const rootPath = workspaceFolders[0].uri.fsPath;
+        syncBranchPolicy(rootPath);
+        refreshUi(rootPath);
     });
+}
+
+/** ステータスバーと専用 UI（サイドバー / グラフ）を最新状態へ同期する */
+function refreshUi(rootPath: string | undefined): void {
+    updateStatusBar(rootPath);
+    microGitUi?.update(buildUiSnapshot(rootPath));
+}
+
+function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
+    if (!rootPath) {
+        return {
+            enabled: isEnabled(),
+            targetBranch: getTargetBranch(),
+            onTarget: false,
+            active: false,
+            currentTag: currentMicroBranchTag,
+            commits: [],
+            hasShadow: false,
+            workspaceOpen: false,
+        };
+    }
+
+    const currentBranch = getCurrentBranch(rootPath);
+    const targetBranch = getTargetBranch();
+    const onTarget = Boolean(targetBranch && currentBranch && currentBranch === targetBranch);
+    const active = isEnabled() && onTarget;
+    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const hasShadow = fs.existsSync(shadowRepoPath);
+    let commits: MicroGitUiSnapshot['commits'] = [];
+    let currentHead: string | undefined;
+
+    if (hasShadow) {
+        commits = getMicroGraphData(shadowRepoPath);
+        currentHead = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD'])?.trim();
+    }
+
+    return {
+        enabled: isEnabled(),
+        targetBranch,
+        currentBranch,
+        onTarget,
+        active,
+        currentTag: currentMicroBranchTag,
+        currentHead,
+        commits,
+        hasShadow,
+        workspaceOpen: true,
+    };
 }
 
 function enqueueSave(task: () => Promise<void>): void {
@@ -468,12 +477,6 @@ function isSafeGitRef(ref: string): boolean {
     return /^[0-9a-f]{4,40}$/i.test(ref) || /^mb-\d+$/.test(ref);
 }
 
-function isSafeRemoteUrl(url: string): boolean {
-    if (url.length > 2048 || /[\r\n\0]/.test(url)) { return false; }
-    return /^(https:\/\/|git@|ssh:\/\/|git:\/\/|[A-Za-z]:\\)/.test(url)
-        || /^[A-Za-z0-9._~:/?#[\]@!$&'()*+,;=%-]+$/.test(url);
-}
-
 function toPosixRelative(rootPath: string, absolutePath: string): string | undefined {
     if (!isPathInsideRoot(absolutePath, rootPath)) { return undefined; }
     const relative = path.relative(rootPath, absolutePath);
@@ -548,7 +551,12 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
     }
 
     try {
-        runGit(shadowRepoPath, ['checkout', target]);
+        const targetHash = runGit(shadowRepoPath, ['rev-parse', target]).trim();
+        if (!isSafeGitRef(targetHash)) {
+            throw new Error('コミット参照を解決できませんでした');
+        }
+        runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', targetHash]);
+        runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
 
         const affectedFilesStr = runGit(shadowRepoPath, ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).trim();
         const affectedFiles = affectedFilesStr.split('\n').filter(Boolean);
@@ -599,11 +607,25 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
     }
 }
 
-async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Promise<void> {
+type ShadowCommitResult = 'created' | 'unchanged' | 'rewound' | 'skipped' | 'error';
+
+/** シャドウ領域が git リポジトリとして使える状態にする（フォルダだけ残っている場合も再初期化） */
+function ensureShadowRepo(shadowRepoPath: string): void {
+    if (!fs.existsSync(shadowRepoPath)) {
+        fs.mkdirSync(shadowRepoPath, { recursive: true });
+    }
+    const gitDir = path.join(shadowRepoPath, '.git');
+    if (!fs.existsSync(gitDir)) {
+        runGit(shadowRepoPath, ['init', '-b', 'micro-history']);
+        ExtensionLogger.log(`シャドウリポジトリを初期化しました: ${shadowRepoPath}`);
+    }
+}
+
+async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Promise<ShadowCommitResult> {
     const relativeFilePath = toPosixRelative(mainRepoPath, savedFilePath);
     if (!relativeFilePath) {
         ExtensionLogger.log(`ワークスペース外のファイルのためスキップ: ${savedFilePath}`, 'WARN');
-        return;
+        return 'skipped';
     }
 
     const shadowRepoPath = path.join(mainRepoPath, '.microgit_shadow');
@@ -611,23 +633,42 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
 
     if (!isPathInsideRoot(shadowFilePath, shadowRepoPath)) {
         ExtensionLogger.log(`不正なシャドウパスのためスキップ: ${relativeFilePath}`, 'WARN');
-        return;
+        return 'skipped';
     }
 
-    if (!fs.existsSync(shadowRepoPath)) {
-        fs.mkdirSync(shadowRepoPath, { recursive: true });
-        runGit(shadowRepoPath, ['init', '-b', 'micro-history']);
+    try {
+        ensureShadowRepo(shadowRepoPath);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        ExtensionLogger.log(`シャドウ初期化に失敗しました: ${message}`, 'ERROR');
+        vscode.window.showErrorMessage(`[MicroGit] シャドウ初期化に失敗しました: ${message}`);
+        return 'error';
     }
+
     if (!fs.existsSync(path.dirname(shadowFilePath))) {
         fs.mkdirSync(path.dirname(shadowFilePath), { recursive: true });
     }
     try {
         fs.copyFileSync(savedFilePath, shadowFilePath);
-    } catch {
-        return;
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        ExtensionLogger.log(`シャドウへのコピーに失敗しました: ${message}`, 'ERROR');
+        vscode.window.showErrorMessage(`[MicroGit] ファイルコピーに失敗しました: ${message}`);
+        return 'error';
     }
 
     try {
+        // detached HEAD のままだと以降の記録が不安定なので、コミット前にブランチへ戻す
+        const microHistoryRef = tryRunGit(shadowRepoPath, ['rev-parse', '--verify', 'refs/heads/micro-history']);
+        const headSymbolic = tryRunGit(shadowRepoPath, ['symbolic-ref', '-q', 'HEAD']);
+        if (microHistoryRef && !headSymbolic) {
+            const headHash = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD'])?.trim();
+            runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
+            if (headHash && isSafeGitRef(headHash)) {
+                runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', headHash]);
+            }
+        }
+
         runGit(shadowRepoPath, ['add', '--', relativeFilePath]);
         const currentTreeHash = runGit(shadowRepoPath, ['write-tree']).trim();
         if (!/^[0-9a-f]{40}$/i.test(currentTreeHash)) {
@@ -657,16 +698,18 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
         }
 
         if (matchingCommit && currentHead !== matchingCommit) {
-            runGit(shadowRepoPath, ['checkout', matchingCommit]);
+            runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', matchingCommit]);
+            runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
             const attachedTag = tryRunGit(shadowRepoPath, ['tag', '--points-at', 'HEAD', '-l', 'mb-*'])?.trim();
             if (attachedTag) {
                 currentMicroBranchTag = attachedTag.split('\n')[0];
             }
             ExtensionLogger.log(`[Ctrl+Z検知] 過去の状態へ戻りました: ${matchingCommit.substring(0, 7)}`);
-            return;
+            vscode.window.setStatusBarMessage(`[MicroGit] 過去状態へ復帰 ${matchingCommit.substring(0, 7)}`, 3000);
+            return 'rewound';
         }
         if (matchingCommit && currentHead === matchingCommit) {
-            return;
+            return 'unchanged';
         }
 
         const timestamp = new Date().toISOString();
@@ -694,7 +737,8 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
             throw new Error('不正な commit ハッシュです');
         }
 
-        runGit(shadowRepoPath, ['update-ref', 'HEAD', commitHash]);
+        runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', commitHash]);
+        runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
 
         const tipOfCurrentTag = tryRunGit(shadowRepoPath, ['rev-parse', currentMicroBranchTag])?.trim();
         if (currentHead && tipOfCurrentTag && currentHead !== tipOfCurrentTag) {
@@ -706,11 +750,16 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
                 currentMicroBranchTag = 'mb-1';
             }
             runGit(shadowRepoPath, ['tag', '-f', currentMicroBranchTag, commitHash]);
-            runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', commitHash]);
         }
+
+        ExtensionLogger.log(`シャドウコミット作成: ${commitHash.substring(0, 7)} (${relativeFilePath}) tag=${currentMicroBranchTag}`);
+        vscode.window.setStatusBarMessage(`[MicroGit] 記録 ${commitHash.substring(0, 7)} · ${currentMicroBranchTag}`, 3000);
+        return 'created';
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         ExtensionLogger.log(`シャドウコミットに失敗しました: ${message}`, 'ERROR');
+        vscode.window.showErrorMessage(`[MicroGit] 記録に失敗しました: ${message}`);
+        return 'error';
     }
 }
 
@@ -811,114 +860,6 @@ function getMicroGraphData(shadowRepoPath: string): Array<{
     } catch {
         return [];
     }
-}
-
-function getWebviewContent(graphData: Array<{
-    hash: string;
-    parents: string[];
-    tags: string[];
-    subject: string;
-    timestamp: string;
-}>): string {
-    if (!graphData || graphData.length === 0) {
-        return `<html><body style="background-color:#1e1e1e;color:#fff;padding:20px;"><h3>MicroGit</h3>履歴がまだありません。</body></html>`;
-    }
-
-    const commits = [...graphData].reverse();
-    const jsonCommits = JSON.stringify(commits);
-
-    return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-    <style>
-        body { font-family: sans-serif; background: #1e1e1e; color: #fff; padding: 20px; }
-        h3 { color: #888; }
-        .node { cursor: pointer; fill: #007acc; transition: 0.2s; }
-        .node:hover { fill: #fff; r: 10; }
-        .line { stroke: #555; stroke-width: 3px; fill: none; }
-        .text { fill: #ccc; font-size: 13px; pointer-events: none; }
-        .tag-text { fill: #007acc; font-size: 11px; font-weight: bold; }
-    </style>
-</head>
-<body>
-    <h3>MicroGit タイムライン履歴</h3>
-    <svg id="graph-area" width="100%" height="${commits.length * 60 + 50}px"></svg>
-
-    <script>
-        const vscode = acquireVsCodeApi();
-        const commits = ${jsonCommits};
-        const svg = document.getElementById('graph-area');
-
-        const nodeMap = new Map();
-        const yInterval = 60;
-        const branchLanes = new Map();
-        let currentMaxLane = 0;
-
-        commits.forEach((c, i) => {
-            let lane = 0;
-            if (i > 0) {
-                const prevCommit = commits[i - 1];
-                if (!c.parents.includes(prevCommit.hash)) {
-                    currentMaxLane++;
-                    lane = currentMaxLane;
-                } else {
-                    lane = branchLanes.get(prevCommit.hash) || 0;
-                }
-            }
-            branchLanes.set(c.hash, lane);
-
-            const xPosition = 40 + (lane * 35);
-            nodeMap.set(c.hash, { x: xPosition, y: i * yInterval + 30 });
-        });
-
-        commits.forEach((c) => {
-            const childPos = nodeMap.get(c.hash);
-            c.parents.forEach(pHash => {
-                const parentPos = nodeMap.get(pHash);
-                if (parentPos) {
-                    const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
-                    line.setAttribute("x1", childPos.x);
-                    line.setAttribute("y1", childPos.y);
-                    line.setAttribute("x2", parentPos.x);
-                    line.setAttribute("y2", parentPos.y);
-                    line.setAttribute("class", "line");
-                    svg.appendChild(line);
-                }
-            });
-        });
-
-        commits.forEach((commit) => {
-            const pos = nodeMap.get(commit.hash);
-
-            const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-            circle.setAttribute("cx", pos.x);
-            circle.setAttribute("cy", pos.y);
-            circle.setAttribute("r", "8");
-            circle.setAttribute("class", "node");
-            circle.onclick = () => {
-                vscode.postMessage({ command: 'jumpToCommit', hash: commit.hash });
-            };
-            svg.appendChild(circle);
-
-            const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-            text.setAttribute("x", pos.x + 20);
-            text.setAttribute("y", pos.y + 5);
-            text.setAttribute("class", "text");
-            text.textContent = commit.hash.substring(0, 7) + " - " + commit.subject;
-            svg.appendChild(text);
-
-            if (commit.tags.length > 0) {
-                const tagText = document.createElementNS("http://www.w3.org/2000/svg", "text");
-                tagText.setAttribute("x", pos.x + 20);
-                tagText.setAttribute("y", pos.y + 20);
-                tagText.setAttribute("class", "tag-text");
-                tagText.textContent = "[" + commit.tags.join(", ") + "]";
-                svg.appendChild(tagText);
-            }
-        });
-    </script>
-</body>
-</html>`;
 }
 
 export function deactivate() {}
