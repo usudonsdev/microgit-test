@@ -9,13 +9,16 @@
     "url": "https://github.com/usudonsdev/microgit"
   },
   "engines": {
-    "vscode": "^1.125.0"
+    "vscode": "^1.105.0"
   },
   "categories": [
     "SCM Providers",
     "Other"
   ],
   "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "commands": [
       {
@@ -59,7 +62,7 @@
   "devDependencies": {
     "@types/mocha": "^10.0.10",
     "@types/node": "^22.20.0",
-    "@types/vscode": "^1.125.0",
+    "@types/vscode": "^1.105.0",
     "@vscode/test-cli": "^0.0.12",
     "@vscode/test-electron": "^2.5.2",
     "eslint": "^9.39.3",

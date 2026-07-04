@@ -24,7 +24,9 @@ export function activate(context: vscode.ExtensionContext) {
     ExtensionLogger.initialize('MicroGit Output');
     ExtensionLogger.log('MicroGit 拡張機能が起動しました');
 
-    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
+    statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
+    statusBarItem.name = 'MicroGit';
+    statusBarItem.text = '$(circle-slash) MicroGit: OFF';
     statusBarItem.command = 'microgit.toggle';
     statusBarItem.tooltip = 'MicroGit の有効 / 無効を切り替え';
     statusBarItem.show();
