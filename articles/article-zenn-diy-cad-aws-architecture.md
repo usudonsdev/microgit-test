@@ -3,7 +3,7 @@ title: "Amplify × Lambda × Bedrock で DIY 用 CAD を作る — Pi 4 から F
 emoji: "📐"
 type: "tech"
 topics: ["aws", "lambda", "bedrock", "amplify", "fargate"]
-published: false
+published: true
 ---
 
 ## はじめに
