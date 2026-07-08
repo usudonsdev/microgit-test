@@ -1,1 +1,96 @@
-{"name":"microgit","displayName":"MicroGit","version":"3.0.0","publisher":"usudonsdev","description":"保存と同時に裏で自動コミット＆チーム同期するタイムトラベルツール","repository":{"type":"git","url":"https://github.com/あなたのユーザー名/リポジトリ名"},"engines":{"vscode":"^1.125.0"},"categories":["SCM Providers","Other"],"main":"./out/extension.js","contributes":{"commands":[{"command":"microgit-test.helloWorld","title":"Hello World"},{"command":"microgit.exportLogs","title":"MicroGit: Export Logs"},{"command":"microgit.jumpToCommit","title":"MicroGit: Jump to Commit or Tag"},{"command":"microgit.showGraph","title":"MicroGit: Show Graph"},{"command":"microgit.pullHistory","title":"MicroGit: Pull Shared History"}]},"scripts":{"vscode:prepublish":"npm run compile","compile":"tsc -p ./","watch":"tsc -watch -p ./","pretest":"npm run compile && npm run lint","lint":"eslint src","test":"node ./out/test/runTest.js"},"devDependencies":{"@types/mocha":"^10.0.10","@types/node":"^22.20.0","@types/vscode":"^1.125.0","@vscode/test-cli":"^0.0.12","@vscode/test-electron":"^2.5.2","eslint":"^9.39.3","typescript":"^5.9.3","typescript-eslint":"^8.56.1","xo":"^3.0.2"}}
+{
+  "name": "microgit",
+  "displayName": "MicroGit",
+  "version": "3.2.0",
+  "publisher": "usudonsdev",
+  "description": "個人開発向け。保存と同時にマイクロ履歴を記録し、メインリポジトリのコミット経由で共有できるタイムトラベルツール",
+  "license": "SEE LICENSE IN LICENCE.md",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/usudonsdev/microgit"
+  },
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Other"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "microgit",
+          "title": "MicroGit",
+          "icon": "media/microgit.svg"
+        }
+      ]
+    },
+    "views": {
+      "microgit": [
+        {
+          "type": "webview",
+          "id": "microgit.sidebar",
+          "name": "Control Panel",
+          "visibility": "visible"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "microgit.toggle",
+        "title": "MicroGit: Toggle On/Off"
+      },
+      {
+        "command": "microgit.enable",
+        "title": "MicroGit: Enable"
+      },
+      {
+        "command": "microgit.disable",
+        "title": "MicroGit: Disable"
+      },
+      {
+        "command": "microgit.openPanel",
+        "title": "MicroGit: Open Control Panel"
+      },
+      {
+        "command": "microgit.exportLogs",
+        "title": "MicroGit: Export Logs"
+      },
+      {
+        "command": "microgit.jumpToCommit",
+        "title": "MicroGit: Jump to Commit or Tag"
+      },
+      {
+        "command": "microgit.showGraph",
+        "title": "MicroGit: Show Graph"
+      }
+    ]
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
+    "test": "node ./out/test/runTest.js",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.20.0",
+    "@types/vscode": "^1.105.0",
+    "@vscode/test-cli": "^0.0.12",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
+    "eslint": "^9.39.3",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1",
+    "xo": "^3.0.2"
+  }
+}
