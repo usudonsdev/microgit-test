@@ -1,5 +1,5 @@
 ---
-title: "Amplify × Lambda × Bedrock で Web から DIY 用 CAD を作る — Pi 4 から Fargate までの進化"
+title: "Amplify × Lambda × Bedrock で DIY 用 CAD を作る — Pi 4 から Fargate までの進化"
 emoji: "📐"
 type: "tech"
 topics: ["aws", "lambda", "bedrock", "amplify", "fargate"]
