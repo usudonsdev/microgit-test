@@ -2,6 +2,13 @@
 
 All notable changes to the "MicroGit" extension will be documented in this file.
 
+## [3.4.0] - 2026-07-26
+
+### Added
+- Cursor Agent / Tab 編集を検知し、マイクロ履歴に `[AI]` 付きで記録
+- サイドバー・グラフの非ホバー表示: `[AI] (更新内容)` / `mb-N (更新内容)`
+- Agent 終了時に作業ツリーを自動 git commit する stop hook（`.cursor/hooks`）
+
 ## [3.3.0] - 2026-07-25
 
 ### Added

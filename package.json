@@ -1,7 +1,7 @@
 {
   "name": "microgit",
   "displayName": "MicroGit",
-  "version": "3.3.0",
+  "version": "3.4.0",
   "publisher": "usudonsdev",
   "description": "個人開発向け。保存と同時にマイクロ履歴を記録し、メインリポジトリのコミット経由で共有できるタイムトラベルツール",
   "license": "SEE LICENSE IN LICENCE.md",
