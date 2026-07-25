@@ -4,6 +4,12 @@ import * as path from 'path';
 
 export const OVERLAY_DIR = '.microgit_overlay';
 
+/** OverlayFS 互換の whiteout プレフィックス（同ディレクトリに `.wh.<name>`） */
+export const WHITEOUT_PREFIX = '.wh.';
+
+/** 展開済みビューの完成マーカー（list / sync 対象外） */
+const VIEW_OK_MARKER = '.microgit_view_ok';
+
 export type OverlayDagNode = {
     hash: string;
     parents: string[];
@@ -25,6 +31,28 @@ export type OverlayPaths = {
     layers: string;
     write: string;
     merge: string;
+    views: string;
+};
+
+export type CheckoutMethod = 'full' | 'incremental' | 'cached-view';
+
+export type CheckoutResult = {
+    /** 常に Node.js ユーザー空間エンジン */
+    backend: 'nodejs';
+    method: CheckoutMethod;
+    layerCount: number;
+    fileCount: number;
+    /** 今回新たに適用したレイヤ数（キャッシュヒット時は 0） */
+    appliedLayers: number;
+    viewHash?: string;
+};
+
+type CheckoutState = {
+    backend: 'nodejs';
+    layerPath: string[];
+    writeBranchTag: string;
+    viewHash?: string;
+    at: string;
 };
 
 type GitRunner = (cwd: string, args: string[]) => string;
@@ -43,12 +71,13 @@ export function getOverlayPaths(workspaceRoot: string): OverlayPaths {
         layers: path.join(root, 'layers'),
         write: path.join(root, 'write'),
         merge: path.join(root, 'merge'),
+        views: path.join(root, 'views'),
     };
 }
 
 export function ensureOverlayDirs(workspaceRoot: string): OverlayPaths {
     const paths = getOverlayPaths(workspaceRoot);
-    for (const dir of [paths.root, paths.meta, paths.layers, paths.write, paths.merge]) {
+    for (const dir of [paths.root, paths.meta, paths.layers, paths.write, paths.merge, paths.views]) {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
         }
@@ -91,6 +120,61 @@ export function layerDir(paths: OverlayPaths, commitHash: string): string {
     return path.join(paths.layers, commitHash);
 }
 
+export function viewDir(paths: OverlayPaths, commitHash: string): string {
+    return path.join(paths.views, commitHash);
+}
+
+export function isWhiteoutName(name: string): boolean {
+    return name.startsWith(WHITEOUT_PREFIX) && name.length > WHITEOUT_PREFIX.length;
+}
+
+export function whiteoutNameFor(basename: string): string {
+    return `${WHITEOUT_PREFIX}${basename}`;
+}
+
+export function targetNameFromWhiteout(name: string): string | undefined {
+    if (!isWhiteoutName(name)) { return undefined; }
+    return name.slice(WHITEOUT_PREFIX.length);
+}
+
+/** `dir/file.txt` → `dir/.wh.file.txt` */
+export function whiteoutRelPath(fileRel: string): string {
+    const parts = fileRel.split('/');
+    const base = parts.pop();
+    if (!base) { return whiteoutNameFor(fileRel); }
+    parts.push(whiteoutNameFor(base));
+    return parts.join('/');
+}
+
+function isSkippedName(name: string): boolean {
+    return name === '.git' || name === '.DS_Store' || name === VIEW_OK_MARKER;
+}
+
+export function isViewReady(paths: OverlayPaths, commitHash: string): boolean {
+    return fs.existsSync(path.join(viewDir(paths, commitHash), VIEW_OK_MARKER));
+}
+
+function markViewReady(paths: OverlayPaths, commitHash: string): void {
+    const dir = viewDir(paths, commitHash);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, VIEW_OK_MARKER), commitHash, 'utf8');
+}
+
+function readCheckoutState(paths: OverlayPaths): CheckoutState | undefined {
+    const stateFile = path.join(paths.meta, 'checkout.json');
+    try {
+        if (!fs.existsSync(stateFile)) { return undefined; }
+        return JSON.parse(fs.readFileSync(stateFile, 'utf8')) as CheckoutState;
+    } catch {
+        return undefined;
+    }
+}
+
+function writeCheckoutState(paths: OverlayPaths, state: CheckoutState): void {
+    fs.mkdirSync(paths.meta, { recursive: true });
+    fs.writeFileSync(path.join(paths.meta, 'checkout.json'), JSON.stringify(state, null, 2), 'utf8');
+}
+
 /** primary parent を辿って root→target の1本パスを返す（兄弟を混ぜない） */
 export function computePath(
     shadowRepoPath: string,
@@ -111,7 +195,6 @@ export function computePath(
         )?.trim();
         if (!parentLine) { break; }
         const parts: string[] = parentLine.split(/\s+/).filter(Boolean);
-        // rev-list --parents: <commit> <parent1> <parent2>...
         const parent = parts.length > 1 ? parts[1] : undefined;
         node = parent;
     }
@@ -119,27 +202,255 @@ export function computePath(
 }
 
 /**
- * Stage 1a: OverlayFS の代わりにレイヤを順に上書きコピーして merge/ を組み立てる
+ * OverlayGit の「空間で時間を買う」核:
+ * 各コミットの完全展開ビューを views/<hash>/ に永続化し、
+ * 親ビュー + 差分レイヤで O(変更) で伸ばす。
+ */
+export function ensureExpandedView(
+    paths: OverlayPaths,
+    layerPath: string[],
+): { viewPath: string; method: CheckoutMethod; appliedLayers: number; viewHash?: string } {
+    fs.mkdirSync(paths.views, { recursive: true });
+
+    if (layerPath.length === 0) {
+        const emptyHash = '_empty';
+        const dest = viewDir(paths, emptyHash);
+        if (!isViewReady(paths, emptyHash)) {
+            clearDirContents(dest);
+            fs.mkdirSync(dest, { recursive: true });
+            markViewReady(paths, emptyHash);
+        }
+        return { viewPath: dest, method: 'cached-view', appliedLayers: 0, viewHash: emptyHash };
+    }
+
+    const tip = layerPath[layerPath.length - 1];
+    if (isViewReady(paths, tip)) {
+        return {
+            viewPath: viewDir(paths, tip),
+            method: 'cached-view',
+            appliedLayers: 0,
+            viewHash: tip,
+        };
+    }
+
+    // パス上で最も先端に近い既存ビューを親にする
+    let parentIdx = -1;
+    for (let i = layerPath.length - 2; i >= 0; i--) {
+        if (isViewReady(paths, layerPath[i])) {
+            parentIdx = i;
+            break;
+        }
+    }
+
+    const dest = viewDir(paths, tip);
+    clearDirContents(dest);
+    fs.mkdirSync(dest, { recursive: true });
+
+    let appliedLayers = 0;
+    let method: CheckoutMethod = 'full';
+
+    if (parentIdx >= 0) {
+        copyTree(viewDir(paths, layerPath[parentIdx]), dest);
+        for (let i = parentIdx + 1; i < layerPath.length; i++) {
+            applyLayerOntoMerge(layerDir(paths, layerPath[i]), dest);
+            appliedLayers++;
+        }
+        method = 'incremental';
+    } else {
+        for (const hash of layerPath) {
+            applyLayerOntoMerge(layerDir(paths, hash), dest);
+            appliedLayers++;
+        }
+        method = 'full';
+    }
+
+    markViewReady(paths, tip);
+    return { viewPath: dest, method, appliedLayers, viewHash: tip };
+}
+
+/**
+ * コミット直後: 親ビューがあれば差分レイヤだけで新ビューを展開して保持する。
+ * （切替時に再構築しない = OverlayGit の時間短縮）
+ * 親ビューが無い場合は不完全なビューを作らず、checkout 時のフルパス構築に任せる。
+ */
+export function expandViewAfterExport(
+    paths: OverlayPaths,
+    commitHash: string,
+    parentHash: string | undefined,
+): CheckoutMethod {
+    if (isViewReady(paths, commitHash)) {
+        return 'cached-view';
+    }
+
+    const dest = viewDir(paths, commitHash);
+
+    if (parentHash && isViewReady(paths, parentHash)) {
+        clearDirContents(dest);
+        fs.mkdirSync(dest, { recursive: true });
+        copyTree(viewDir(paths, parentHash), dest);
+        applyLayerOntoMerge(layerDir(paths, commitHash), dest);
+        markViewReady(paths, commitHash);
+        return 'incremental';
+    }
+
+    if (!parentHash) {
+        clearDirContents(dest);
+        fs.mkdirSync(dest, { recursive: true });
+        applyLayerOntoMerge(layerDir(paths, commitHash), dest);
+        markViewReady(paths, commitHash);
+        return 'full';
+    }
+
+    return 'full';
+}
+
+/**
+ * Node.js ユーザー空間 Overlay（OverlayFS 意味論）:
+ * 展開済みビューを merge に載せ、write レイヤを最上層に適用する。
  */
 export function materializeMerge(
     paths: OverlayPaths,
     layerPath: string[],
     writeBranchTag: string,
-): void {
+): { fileCount: number; method: CheckoutMethod; appliedLayers: number; viewHash?: string } {
+    const ensured = ensureExpandedView(paths, layerPath);
+
     clearDirContents(paths.merge);
     fs.mkdirSync(paths.merge, { recursive: true });
-
-    for (const hash of layerPath) {
-        const src = layerDir(paths, hash);
-        if (fs.existsSync(src)) {
-            copyMerge(src, paths.merge);
-        }
-    }
+    copyTree(ensured.viewPath, paths.merge);
 
     const writeSrc = writeLayerDir(paths, writeBranchTag);
-    if (fs.existsSync(writeSrc)) {
-        copyMerge(writeSrc, paths.merge);
+    applyLayerOntoMerge(writeSrc, paths.merge);
+
+    return {
+        fileCount: listFilesRecursive(paths.merge).length,
+        method: ensured.method,
+        appliedLayers: ensured.appliedLayers,
+        viewHash: ensured.viewHash,
+    };
+}
+
+/** checkout の唯一の実装入口（常に Node.js + 展開ビュー） */
+export function checkoutLayers(
+    paths: OverlayPaths,
+    layerPath: string[],
+    writeBranchTag: string,
+): CheckoutResult {
+    const prev = readCheckoutState(paths);
+    const tip = layerPath.length ? layerPath[layerPath.length - 1] : undefined;
+
+    // 同一 tip・同一 write なら write レイヤだけ載せ直す（ビュー再構築ゼロ）
+    if (
+        tip &&
+        prev?.viewHash === tip &&
+        prev.writeBranchTag === writeBranchTag &&
+        isViewReady(paths, tip) &&
+        fs.existsSync(paths.merge)
+    ) {
+        clearDirContents(paths.merge);
+        copyTree(viewDir(paths, tip), paths.merge);
+        applyLayerOntoMerge(writeLayerDir(paths, writeBranchTag), paths.merge);
+        const fileCount = listFilesRecursive(paths.merge).length;
+        writeCheckoutState(paths, {
+            backend: 'nodejs',
+            layerPath,
+            writeBranchTag,
+            viewHash: tip,
+            at: new Date().toISOString(),
+        });
+        return {
+            backend: 'nodejs',
+            method: 'cached-view',
+            layerCount: layerPath.length,
+            fileCount,
+            appliedLayers: 0,
+            viewHash: tip,
+        };
     }
+
+    const materialized = materializeMerge(paths, layerPath, writeBranchTag);
+    writeCheckoutState(paths, {
+        backend: 'nodejs',
+        layerPath,
+        writeBranchTag,
+        viewHash: materialized.viewHash,
+        at: new Date().toISOString(),
+    });
+    return {
+        backend: 'nodejs',
+        method: materialized.method,
+        layerCount: layerPath.length,
+        fileCount: materialized.fileCount,
+        appliedLayers: materialized.appliedLayers,
+        viewHash: materialized.viewHash,
+    };
+}
+
+export function describeOverlayEngine(): string {
+    return `backend=nodejs space-for-time=views platform=${process.platform}`;
+}
+
+/** ディレクトリツリーをコピー（ビューマーカーは除外） */
+export function copyTree(srcDir: string, destDir: string): void {
+    if (!fs.existsSync(srcDir)) { return; }
+    fs.mkdirSync(destDir, { recursive: true });
+
+    const walk = (dir: string, relPrefix: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (isSkippedName(entry.name)) { continue; }
+            const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+            const abs = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                fs.mkdirSync(path.join(destDir, ...rel.split('/')), { recursive: true });
+                walk(abs, rel);
+            } else if (entry.isFile()) {
+                const to = path.join(destDir, ...rel.split('/'));
+                fs.mkdirSync(path.dirname(to), { recursive: true });
+                fs.copyFileSync(abs, to);
+            }
+        }
+    };
+    walk(srcDir, '');
+}
+
+/** レイヤを merge/view に適用（通常ファイルコピー + whiteout 削除） */
+export function applyLayerOntoMerge(srcDir: string, mergeDir: string): void {
+    if (!fs.existsSync(srcDir)) { return; }
+
+    const walk = (dir: string, relPrefix: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (isSkippedName(entry.name)) { continue; }
+            const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+            const abs = path.join(dir, entry.name);
+
+            if (entry.isDirectory()) {
+                walk(abs, rel);
+                continue;
+            }
+            if (!entry.isFile()) { continue; }
+
+            if (isWhiteoutName(entry.name)) {
+                const targetName = targetNameFromWhiteout(entry.name);
+                if (!targetName) { continue; }
+                const parentRel = relPrefix;
+                const targetRel = parentRel ? `${parentRel}/${targetName}` : targetName;
+                removeMergePath(mergeDir, targetRel);
+                continue;
+            }
+
+            const to = path.join(mergeDir, ...rel.split('/'));
+            fs.mkdirSync(path.dirname(to), { recursive: true });
+            fs.copyFileSync(abs, to);
+        }
+    };
+
+    walk(srcDir, '');
+}
+
+function removeMergePath(mergeDir: string, rel: string): void {
+    const target = path.join(mergeDir, ...rel.split('/'));
+    if (!fs.existsSync(target)) { return; }
+    fs.rmSync(target, { recursive: true, force: true });
 }
 
 export function listFilesRecursive(rootDir: string): string[] {
@@ -148,7 +459,7 @@ export function listFilesRecursive(rootDir: string): string[] {
 
     const walk = (dir: string, prefix: string) => {
         for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-            if (entry.name === '.git' || entry.name === '.DS_Store') { continue; }
+            if (isSkippedName(entry.name) || isWhiteoutName(entry.name)) { continue; }
             const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
             const abs = path.join(dir, entry.name);
             if (entry.isDirectory()) {
@@ -173,17 +484,22 @@ export function clearDirContents(dir: string): void {
 }
 
 export function copyMerge(srcDir: string, destDir: string): void {
-    if (!fs.existsSync(srcDir)) { return; }
-    const files = listFilesRecursive(srcDir);
-    for (const rel of files) {
-        const from = path.join(srcDir, ...rel.split('/'));
-        const to = path.join(destDir, ...rel.split('/'));
-        fs.mkdirSync(path.dirname(to), { recursive: true });
-        fs.copyFileSync(from, to);
+    applyLayerOntoMerge(srcDir, destDir);
+}
+
+function filesContentEqual(a: string, b: string): boolean {
+    try {
+        const sa = fs.statSync(a);
+        const sb = fs.statSync(b);
+        if (!sa.isFile() || !sb.isFile() || sa.size !== sb.size) { return false; }
+        if (sa.size === 0) { return true; }
+        return fs.readFileSync(a).equals(fs.readFileSync(b));
+    } catch {
+        return false;
     }
 }
 
-/** commit の変更ファイルを layers/<hash>/ にフル実体で書き出す */
+/** commit の変更ファイルを layers/<hash>/ にフル実体（または whiteout）で書き出す */
 export function exportCommitLayer(
     shadowRepoPath: string,
     paths: OverlayPaths,
@@ -195,6 +511,7 @@ export function exportCommitLayer(
 ): string[] {
     fs.mkdirSync(paths.layers, { recursive: true });
     fs.mkdirSync(paths.meta, { recursive: true });
+    fs.mkdirSync(paths.views, { recursive: true });
 
     const dest = layerDir(paths, commitHash);
     fs.mkdirSync(dest, { recursive: true });
@@ -222,12 +539,16 @@ export function exportCommitLayer(
             const outFile = path.join(dest, ...relPath.split('/'));
             fs.mkdirSync(path.dirname(outFile), { recursive: true });
             fs.writeFileSync(outFile, content);
+            const wo = path.join(dest, ...whiteoutRelPath(relPath).split('/'));
+            if (fs.existsSync(wo)) { fs.unlinkSync(wo); }
         } catch {
-            // 削除されたファイルはレイヤに置かない（MVP: whiteout なし）
             const outFile = path.join(dest, ...relPath.split('/'));
             if (fs.existsSync(outFile)) {
-                fs.unlinkSync(outFile);
+                fs.rmSync(outFile, { recursive: true, force: true });
             }
+            const wo = path.join(dest, ...whiteoutRelPath(relPath).split('/'));
+            fs.mkdirSync(path.dirname(wo), { recursive: true });
+            fs.writeFileSync(wo, '');
         }
     }
 
@@ -246,6 +567,9 @@ export function exportCommitLayer(
     if (branchTag) { dag.currentTag = branchTag; }
     writeDag(paths, dag);
 
+    // 空間で時間を買う: コミット時点でビューを展開保持
+    expandViewAfterExport(paths, commitHash, parentHash);
+
     return changedFiles;
 }
 
@@ -258,11 +582,9 @@ export function ensureLayerExists(
     tryRunGit: GitTryRunner,
 ): void {
     const dag = readDag(paths);
-    if (dag.nodes[commitHash]) {
-        return;
-    }
     const dest = layerDir(paths, commitHash);
-    if (fs.existsSync(dest) && listFilesRecursive(dest).length > 0) {
+    const hasContent = fs.existsSync(dest) && fs.readdirSync(dest).some((n) => !isSkippedName(n));
+    if (dag.nodes[commitHash] && hasContent) {
         return;
     }
 
@@ -282,6 +604,22 @@ export function removeFromWriteLayer(
     if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
     }
+    const wo = path.join(paths.write, branchTag, ...whiteoutRelPath(relativeFilePath).split('/'));
+    if (fs.existsSync(wo)) {
+        fs.unlinkSync(wo);
+    }
+}
+
+/** 書き込みレイヤに whiteout を置いて「削除」を表現 */
+export function whiteoutInWriteLayer(
+    paths: OverlayPaths,
+    branchTag: string,
+    relativeFilePath: string,
+): void {
+    removeFromWriteLayer(paths, branchTag, relativeFilePath);
+    const wo = path.join(paths.write, branchTag, ...whiteoutRelPath(relativeFilePath).split('/'));
+    fs.mkdirSync(path.dirname(wo), { recursive: true });
+    fs.writeFileSync(wo, '');
 }
 
 /** shadow 履歴に登場した全パスを収集（兄弟枝の取り残し削除用） */
@@ -300,7 +638,7 @@ export function collectShadowTrackedFiles(
 
 /**
  * merge/ の内容をワークスペースへ同期する。
- * managedFiles にあって merge に無いファイルは削除し、兄弟枝の取り残しを防ぐ。
+ * 内容同一ファイルはスキップして I/O とエディタ revert を抑える。
  */
 export function syncMergeToWorkspace(
     workspaceRoot: string,
@@ -308,7 +646,7 @@ export function syncMergeToWorkspace(
     isSafeRepoRelativePath: (relPath: string, rootPath: string) => boolean,
     isMicroGitArtifactPath: (filePath: string, rootPath: string) => boolean,
     extraManagedFiles?: string[],
-): { written: string[]; deleted: string[] } {
+): { written: string[]; deleted: string[]; skipped: number } {
     const dag = readDag(paths);
     const mergeFiles = new Set(listFilesRecursive(paths.merge));
     const managed = new Set(dag.managedFiles);
@@ -317,12 +655,17 @@ export function syncMergeToWorkspace(
 
     const written: string[] = [];
     const deleted: string[] = [];
+    let skipped = 0;
 
     for (const rel of mergeFiles) {
         if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
         const from = path.join(paths.merge, ...rel.split('/'));
         const to = path.join(workspaceRoot, ...rel.split('/'));
         if (isMicroGitArtifactPath(to, workspaceRoot)) { continue; }
+        if (fs.existsSync(to) && filesContentEqual(from, to)) {
+            skipped++;
+            continue;
+        }
         fs.mkdirSync(path.dirname(to), { recursive: true });
         fs.copyFileSync(from, to);
         written.push(rel);
@@ -341,7 +684,7 @@ export function syncMergeToWorkspace(
 
     dag.managedFiles = Array.from(managed).sort();
     writeDag(paths, dag);
-    return { written, deleted };
+    return { written, deleted, skipped };
 }
 
 export function updateDagCurrent(

@@ -1,7 +1,7 @@
 {
   "name": "microgit",
   "displayName": "MicroGit",
-  "version": "3.4.1",
+  "version": "3.6.1",
   "publisher": "usudonsdev",
   "description": "個人開発向け。保存と同時にマイクロ履歴を記録し、メインリポジトリのコミット経由で共有できるタイムトラベルツール",
   "license": "SEE LICENSE IN LICENCE.md",
@@ -68,6 +68,10 @@
       {
         "command": "microgit.showGraph",
         "title": "MicroGit: Show Graph"
+      },
+      {
+        "command": "microgit.overlayStatus",
+        "title": "MicroGit: Overlay Status"
       }
     ],
     "configuration": {
@@ -76,7 +80,7 @@
         "microgit.useOverlayCheckout": {
           "type": "boolean",
           "default": true,
-          "description": "Stage 1a: レイヤのユーザー空間マージでチェックアウトする（兄弟ブランチのファイル隔離）。オフで従来の git show 同期に戻す。"
+          "description": "Node.js ユーザー空間 Overlay checkout を有効化（兄弟ブランチのファイル隔離）。オフで従来の git show 同期に戻す。"
         }
       }
     }

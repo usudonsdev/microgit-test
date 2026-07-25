@@ -1,16 +1,18 @@
 import { execFileSync } from 'child_process';
+import { createHash } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
     OVERLAY_DIR,
+    checkoutLayers,
     collectShadowTrackedFiles,
     computePath,
+    describeOverlayEngine,
     ensureLayerExists,
     ensureOverlayDirs,
     exportCommitLayer,
     isOverlayCheckoutEnabled,
-    materializeMerge,
     removeFromWriteLayer,
     syncMergeToWorkspace,
     updateDagCurrent,
@@ -29,8 +31,12 @@ let extensionContext: vscode.ExtensionContext | undefined;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let microGitUi: MicroGitUi | undefined;
 let saveChain: Promise<void> = Promise.resolve();
+/** キュー上に残っている保存ジョブ数（同一内容の畳み込み判定に使う） */
+let pendingSaveJobs = 0;
 /** 直前に観測したブランチ名（対象ブランチへの復帰検知用） */
 let lastKnownBranch: string | undefined;
+/** 直近エンキューした保存ジョブ（キュー未消化中の同一内容連続保存を畳む） */
+let lastEnqueuedSave: { absPath: string; contentHash: string } | undefined;
 
 /**
  * 拡張機能がアクティブになった際に呼び出されるエントリポイント
@@ -74,41 +80,65 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.workspace.onDidSaveTextDocument((document) => {
+            if (!workspaceFolders) { return; }
+            const rootPath = workspaceFolders[0].uri.fsPath;
+            const absPath = document.uri.fsPath;
+
+            if (isMicroGitArtifactPath(absPath, rootPath)) { return; }
+            if (!isPathInsideRoot(absPath, rootPath)) { return; }
+
+            if (!syncBranchPolicy(rootPath)) {
+                refreshUi(rootPath);
+                return;
+            }
+
+            const gitPath = path.join(rootPath, '.git');
+            const isTestFile = absPath.endsWith('test_dummy.py');
+            if (!fs.existsSync(gitPath) && !isTestFile) {
+                ExtensionLogger.log('Git管理外のフォルダのため、処理をスキップしました。', 'WARN');
+                void ExtensionLogger.exportLogFile(rootPath);
+                return;
+            }
+
+            // 発行時点の内容を固定（実行時のディスク／ジャンプ後状態に引きずられない）
+            const snapshot = captureSaveSnapshot(document);
+            const contentHash = createHash('sha1').update(snapshot).digest('hex');
+
+            // キュー消化前の同一パス・同一内容の連続エンキューだけ畳む
+            if (
+                pendingSaveJobs > 0 &&
+                lastEnqueuedSave &&
+                lastEnqueuedSave.absPath === absPath &&
+                lastEnqueuedSave.contentHash === contentHash
+            ) {
+                ExtensionLogger.log(`同一内容のため保存ジョブを省略: ${absPath}`);
+                return;
+            }
+            lastEnqueuedSave = { absPath, contentHash };
+
+            ExtensionLogger.log(`ファイル保存イベントを検知（スナップショット）: ${absPath}`);
+
+            pendingSaveJobs++;
             enqueueSave(async () => {
-                if (!workspaceFolders) { return; }
-                const rootPath = workspaceFolders[0].uri.fsPath;
-
-                if (isMicroGitArtifactPath(document.fileName, rootPath)) { return; }
-                if (!isPathInsideRoot(document.fileName, rootPath)) { return; }
-
-                if (!syncBranchPolicy(rootPath)) {
-                    refreshUi(rootPath);
-                    return;
-                }
-
-                ExtensionLogger.log(`ファイル保存イベントを検知しました: ${document.fileName}`);
-
-                const gitPath = path.join(rootPath, '.git');
-                const isTestFile = document.fileName.endsWith('test_dummy.py');
-
-                if (!fs.existsSync(gitPath) && !isTestFile) {
-                    ExtensionLogger.log('Git管理外のフォルダのため、処理をスキップしました。', 'WARN');
-                    await ExtensionLogger.exportLogFile(rootPath);
-                    return;
-                }
-
-                const result = await runShadowCommit(rootPath, document.fileName);
-                if (result === 'created' || result === 'rewound') {
-                    await generateMicroGitFileLog(rootPath, document.fileName);
-                    if (useOverlayCheckout()) {
-                        const head = tryRunGit(path.join(rootPath, '.microgit_shadow'), ['rev-parse', 'HEAD'])?.trim();
-                        if (head) {
-                            await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });
+                try {
+                    const result = await runShadowCommit(rootPath, absPath, snapshot);
+                    if (result === 'created' || result === 'rewound') {
+                        await generateMicroGitFileLog(rootPath, absPath);
+                        if (useOverlayCheckout()) {
+                            const head = tryRunGit(path.join(rootPath, '.microgit_shadow'), ['rev-parse', 'HEAD'])?.trim();
+                            if (head) {
+                                await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });
+                            }
                         }
                     }
+                    await ExtensionLogger.exportLogFile(rootPath);
+                    refreshUi(rootPath);
+                } finally {
+                    pendingSaveJobs = Math.max(0, pendingSaveJobs - 1);
+                    if (pendingSaveJobs === 0) {
+                        lastEnqueuedSave = undefined;
+                    }
                 }
-                await ExtensionLogger.exportLogFile(rootPath);
-                refreshUi(rootPath);
             });
         })
     );
@@ -219,6 +249,21 @@ export function activate(context: vscode.ExtensionContext) {
         })
     );
 
+    context.subscriptions.push(
+        vscode.commands.registerCommand('microgit.overlayStatus', async () => {
+            const text =
+                `${describeOverlayEngine()}\n` +
+                `useOverlayCheckout=${useOverlayCheckout()}\n` +
+                `note=kernel/fuse mount は使わず Node.js のみで Overlay 意味論を実装`;
+            ExtensionLogger.log(`[Overlay status]\n${text}`);
+            vscode.window.showInformationMessage(`[MicroGit Overlay] nodejs materialize`);
+            await vscode.window.showTextDocument(
+                await vscode.workspace.openTextDocument({ content: text, language: 'text' }),
+                { preview: true }
+            );
+        })
+    );
+
     watchGitBranchChanges(context, () => {
         if (!workspaceFolders) { return; }
         const rootPath = workspaceFolders[0].uri.fsPath;
@@ -277,6 +322,16 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
 
 function enqueueSave(task: () => Promise<void>): void {
     saveChain = saveChain.then(task, task);
+}
+
+/** onDidSave 時点のファイル内容を固定する（以降のディスク変化の影響を受けない） */
+function captureSaveSnapshot(document: vscode.TextDocument): Buffer {
+    try {
+        // 保存完了後なのでディスクが正本。バイナリもそのまま取れる。
+        return fs.readFileSync(document.uri.fsPath);
+    } catch {
+        return Buffer.from(document.getText(), 'utf8');
+    }
 }
 
 function isEnabled(): boolean {
@@ -585,7 +640,7 @@ function consumeAiPending(rootPath: string, relativeFilePath: string): boolean {
 }
 
 /**
- * Stage 1a: computePath → materializeMerge →（任意で）workspace 同期
+ * Node.js Overlay: computePath → checkoutLayers（ユーザー空間 materialize）→ workspace 同期
  */
 async function applyOverlayCheckout(
     rootPath: string,
@@ -602,17 +657,19 @@ async function applyOverlayCheckout(
         ensureLayerExists(shadowRepoPath, paths, hash, runGit, tryRunGit);
     }
 
-    materializeMerge(paths, layerPath, currentMicroBranchTag);
+    const result = checkoutLayers(paths, layerPath, currentMicroBranchTag);
     updateDagCurrent(paths, targetHash, currentMicroBranchTag);
 
     if (!syncWorkspace) {
         ExtensionLogger.log(
-            `[Overlay/1a] merge 更新のみ path=${layerPath.map((h) => h.substring(0, 7)).join('→')} write=${currentMicroBranchTag}`
+            `[Overlay/${result.backend}] merge 更新のみ method=${result.method} ` +
+            `applied=${result.appliedLayers} files=${result.fileCount} ` +
+            `path=${layerPath.map((h) => h.substring(0, 7)).join('→')} write=${currentMicroBranchTag}`
         );
         return;
     }
 
-    const { written, deleted } = syncMergeToWorkspace(
+    const { written, deleted, skipped } = syncMergeToWorkspace(
         rootPath,
         paths,
         isSafeRepoRelativePath,
@@ -630,8 +687,10 @@ async function applyOverlayCheckout(
     }
 
     ExtensionLogger.log(
-        `[Overlay/1a] materialize path=${layerPath.map((h) => h.substring(0, 7)).join('→')} ` +
-        `write=${currentMicroBranchTag} written=${written.length} deleted=${deleted.length}`
+        `[Overlay/${result.backend}] method=${result.method} applied=${result.appliedLayers} ` +
+        `path=${layerPath.map((h) => h.substring(0, 7)).join('→')} ` +
+        `write=${currentMicroBranchTag} written=${written.length} deleted=${deleted.length} skipped=${skipped} ` +
+        `(${describeOverlayEngine()})`
     );
 }
 
@@ -767,7 +826,11 @@ function ensureShadowRepo(shadowRepoPath: string): void {
     }
 }
 
-async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Promise<ShadowCommitResult> {
+async function runShadowCommit(
+    mainRepoPath: string,
+    savedFilePath: string,
+    snapshotContent: Buffer,
+): Promise<ShadowCommitResult> {
     const relativeFilePath = toPosixRelative(mainRepoPath, savedFilePath);
     if (!relativeFilePath) {
         ExtensionLogger.log(`ワークスペース外のファイルのためスキップ: ${savedFilePath}`, 'WARN');
@@ -795,11 +858,12 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
         fs.mkdirSync(path.dirname(shadowFilePath), { recursive: true });
     }
     try {
-        fs.copyFileSync(savedFilePath, shadowFilePath);
+        // 実行時ディスクではなく、ジョブ発行時スナップショットを書く
+        fs.writeFileSync(shadowFilePath, snapshotContent);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
-        ExtensionLogger.log(`シャドウへのコピーに失敗しました: ${message}`, 'ERROR');
-        vscode.window.showErrorMessage(`[MicroGit] ファイルコピーに失敗しました: ${message}`);
+        ExtensionLogger.log(`シャドウへの書き込みに失敗しました: ${message}`, 'ERROR');
+        vscode.window.showErrorMessage(`[MicroGit] ファイル書き込みに失敗しました: ${message}`);
         return 'error';
     }
 
@@ -918,11 +982,12 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
                 );
                 removeFromWriteLayer(overlayPaths, currentMicroBranchTag, relativeFilePath);
                 ExtensionLogger.log(
-                    `[Overlay/1a] レイヤ書き出し: layers/${commitHash.substring(0, 7)} (${relativeFilePath})`
+                    `[Overlay] レイヤ+ビュー展開: layers/${commitHash.substring(0, 7)} ` +
+                    `view=${commitHash.substring(0, 7)} (${relativeFilePath})`
                 );
             } catch (overlayErr: unknown) {
                 const msg = overlayErr instanceof Error ? overlayErr.message : String(overlayErr);
-                ExtensionLogger.log(`[Overlay/1a] レイヤ書き出しに失敗: ${msg}`, 'WARN');
+                ExtensionLogger.log(`[Overlay] レイヤ書き出しに失敗: ${msg}`, 'WARN');
             }
         }
 
@@ -1036,4 +1101,6 @@ function getMicroGraphData(shadowRepoPath: string): Array<{
     }
 }
 
-export function deactivate() {}
+export function deactivate() {
+    // Node.js Overlay は mount しないため tear-down 不要
+}

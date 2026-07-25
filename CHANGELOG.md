@@ -2,6 +2,36 @@
 
 All notable changes to the "MicroGit" extension will be documented in this file.
 
+## [3.6.1] - 2026-07-26
+
+### Fixed
+- 保存ジョブ発行時にファイル内容をスナップショットし、実行時のディスク変化・ジャンプ後状態の影響を受けないようにした
+
+### Changed
+- 同一パス・同一内容の連続保存ジョブを省略し、連続保存時のキュー膨張を抑制
+
+## [3.6.0] - 2026-07-26
+
+### Added
+- OverlayGit 型「空間で時間を買う」: `views/<hash>/` に完全展開ビューを永続化
+- 保存時に親ビュー + 差分レイヤで O(変更) 展開、再訪問・分岐切替はキャッシュヒット
+- workspace 同期で内容同一ファイルをスキップ
+
+### Changed
+- checkout がフル再マージではなく展開ビュー利用を既定に
+
+## [3.5.0] - 2026-07-26
+
+### Added
+- Node.js ユーザー空間 Overlay エンジン（OverlayFS 意味論: レイヤ上書き + `.wh.*` whiteout）
+- コマンド `MicroGit: Overlay Status`
+- スモーク `scripts/overlay-smoke.sh`（OS mount / Docker 不要）
+- ドキュメント `docs/NodeOverlay.md`
+
+### Changed
+- checkout を OS 非依存の Node 経路に一本化（kernel OverlayFS / fuse-overlayfs は使わない）
+- 設定 `microgit.overlayBackend` を廃止
+
 ## [3.4.1] - 2026-07-26
 
 ### Changed
