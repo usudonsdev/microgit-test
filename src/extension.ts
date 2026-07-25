@@ -563,6 +563,27 @@ function useOverlayCheckout(): boolean {
     );
 }
 
+const AI_PENDING_FILE = path.join('.microgit_logs', 'ai-pending.json');
+
+/** Cursor Agent / Tab 編集でマークされたパスなら true を返し、pending から外す */
+function consumeAiPending(rootPath: string, relativeFilePath: string): boolean {
+    const pendingPath = path.join(rootPath, AI_PENDING_FILE);
+    try {
+        if (!fs.existsSync(pendingPath)) { return false; }
+        const raw = JSON.parse(fs.readFileSync(pendingPath, 'utf8')) as unknown;
+        if (!Array.isArray(raw)) { return false; }
+        const list = raw.filter((x): x is string => typeof x === 'string');
+        const norm = relativeFilePath.replace(/\\/g, '/');
+        const idx = list.findIndex((p) => p.replace(/\\/g, '/') === norm);
+        if (idx < 0) { return false; }
+        list.splice(idx, 1);
+        fs.writeFileSync(pendingPath, JSON.stringify(list, null, 2), 'utf8');
+        return true;
+    } catch {
+        return false;
+    }
+}
+
 /**
  * Stage 1a: computePath → materializeMerge →（任意で）workspace 同期
  */
@@ -835,7 +856,10 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
         }
 
         const timestamp = new Date().toISOString();
-        const commitMessage = `micro: saved ${relativeFilePath} at ${timestamp}`;
+        const fromAi = consumeAiPending(mainRepoPath, relativeFilePath);
+        const commitMessage = fromAi
+            ? `micro: [AI] saved ${relativeFilePath} at ${timestamp}`
+            : `micro: saved ${relativeFilePath} at ${timestamp}`;
         const commitTreeArgs = ['commit-tree', currentTreeHash];
         if (currentHead) {
             if (!isSafeGitRef(currentHead)) {

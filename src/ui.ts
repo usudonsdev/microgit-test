@@ -238,8 +238,8 @@ function getSidebarHtml(): string {
   .item:hover { outline: 1px solid var(--btn); }
   .item.active { border-color: var(--active); background: rgba(63, 185, 80, 0.08); }
   .item-compact { display: flex; justify-content: space-between; gap: 8px; }
-  .item-label { font-weight: 600; }
-  .item-time { color: var(--muted); font-size: 11px; white-space: nowrap; }
+  .item-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+  .item-time { color: var(--muted); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
   .empty { color: var(--muted); font-size: 12px; }
   .hover-tip {
     position: fixed;
@@ -310,6 +310,30 @@ function getSidebarHtml(): string {
       return short(c.hash);
     }
 
+    function isAiCommit(c) {
+      return /\\[AI\\]/i.test(c.subject || '');
+    }
+
+    /** subject から更新内容（相対パス等）を取り出す */
+    function updateSummary(c) {
+      const subject = c.subject || '';
+      const m = subject.match(/saved\\s+(.+?)\\s+at\\s+/i);
+      if (m && m[1]) {
+        return m[1].replace(/^\\[AI\\]\\s*/i, '').trim();
+      }
+      const cleaned = subject.replace(/^micro:\\s*/i, '').replace(/^\\[AI\\]\\s*/i, '').trim();
+      return cleaned || short(c.hash);
+    }
+
+    /** 非ホバー時の一行表示: AI 由来は [AI] (更新内容) */
+    function compactDisplay(c) {
+      const summary = updateSummary(c);
+      if (isAiCommit(c)) {
+        return '[AI] (' + summary + ')';
+      }
+      return commitLabel(c) + ' (' + summary + ')';
+    }
+
     function shortTime(timestamp) {
       if (!timestamp) { return '-'; }
       const parts = String(timestamp).split(' ');
@@ -323,6 +347,9 @@ function getSidebarHtml(): string {
         'message: ' + (c.subject || '(no message)'),
         'time: ' + (c.timestamp || '-'),
       ];
+      if (isAiCommit(c)) {
+        lines.push('source: AI agent');
+      }
       if (c.tags && c.tags.length) {
         lines.push('tags: ' + c.tags.join(', '));
       }
@@ -377,7 +404,7 @@ function getSidebarHtml(): string {
             '<span class="item-label"></span>' +
             '<span class="item-time"></span>' +
           '</div>';
-        btn.querySelector('.item-label').textContent = commitLabel(c);
+        btn.querySelector('.item-label').textContent = compactDisplay(c);
         btn.querySelector('.item-time').textContent = shortTime(c.timestamp);
         btn.onmouseenter = () => showTip(sidebarTip, commitDetailText(c), btn);
         btn.onmouseleave = () => hideTip(sidebarTip);
@@ -477,6 +504,28 @@ function getGraphHtml(): string {
       return short(commit.hash);
     }
 
+    function isAiCommit(commit) {
+      return /\\[AI\\]/i.test(commit.subject || '');
+    }
+
+    function updateSummary(commit) {
+      const subject = commit.subject || '';
+      const m = subject.match(/saved\\s+(.+?)\\s+at\\s+/i);
+      if (m && m[1]) {
+        return m[1].replace(/^\\[AI\\]\\s*/i, '').trim();
+      }
+      const cleaned = subject.replace(/^micro:\\s*/i, '').replace(/^\\[AI\\]\\s*/i, '').trim();
+      return cleaned || short(commit.hash);
+    }
+
+    function compactDisplay(commit) {
+      const summary = updateSummary(commit);
+      if (isAiCommit(commit)) {
+        return '[AI] (' + summary + ')';
+      }
+      return commitLabel(commit) + ' (' + summary + ')';
+    }
+
     function shortTime(timestamp) {
       if (!timestamp) { return '-'; }
       const parts = String(timestamp).split(' ');
@@ -490,6 +539,9 @@ function getGraphHtml(): string {
         'message: ' + (commit.subject || '(no message)'),
         'time: ' + (commit.timestamp || '-'),
       ];
+      if (isAiCommit(commit)) {
+        lines.push('source: AI agent');
+      }
       if (commit.tags && commit.tags.length) {
         lines.push('tags: ' + commit.tags.join(', '));
       }
@@ -554,7 +606,7 @@ function getGraphHtml(): string {
 
       // ラベルは全レーンの右外側の共通列に置き、枝同士の文字被りを防ぐ
       const labelColumnX = leftPad + ((currentMaxLane + 1) * laneSpacing) + 16;
-      const approxLabelWidth = 120;
+      const approxLabelWidth = 220;
       const svgWidth = Math.max(labelColumnX + approxLabelWidth + 24, 280);
       svg.setAttribute('height', (commitsAsc.length * yInterval + 40) + 'px');
       svg.setAttribute('width', svgWidth + 'px');
@@ -603,8 +655,8 @@ function getGraphHtml(): string {
         const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         label.setAttribute('x', labelColumnX);
         label.setAttribute('y', pos.y + 4);
-        label.setAttribute('class', 'node-label' + (hasTag ? ' tag' : ''));
-        label.textContent = commitLabel(commit) + '  ' + shortTime(commit.timestamp);
+        label.setAttribute('class', 'node-label' + (hasTag || isAiCommit(commit) ? ' tag' : ''));
+        label.textContent = compactDisplay(commit) + '  ' + shortTime(commit.timestamp);
         svg.appendChild(label);
       });
     }
