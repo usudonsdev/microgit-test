@@ -223,22 +223,41 @@ function getSidebarHtml(): string {
   button.primary { background: var(--btn); color: var(--btn-fg); }
   button.secondary { background: var(--btn2); color: var(--btn2-fg); }
   button:disabled { opacity: 0.5; cursor: not-allowed; }
-  .list { display: grid; gap: 6px; max-height: 50vh; overflow: auto; }
+  .list { display: grid; gap: 4px; max-height: 50vh; overflow: auto; }
   .item {
     border: 1px solid var(--border);
     border-radius: 4px;
-    padding: 8px;
+    padding: 6px 8px;
     cursor: pointer;
     background: transparent;
     text-align: left;
     color: inherit;
+    font-family: var(--vscode-editor-font-family, monospace);
+    font-size: 12px;
   }
   .item:hover { outline: 1px solid var(--btn); }
-  .item.active { border-color: var(--active); }
-  .hash { font-family: var(--vscode-editor-font-family, monospace); font-size: 11px; color: var(--muted); }
-  .subject { margin-top: 2px; }
-  .tags { margin-top: 4px; color: var(--btn); font-size: 11px; font-weight: 700; }
+  .item.active { border-color: var(--active); background: rgba(63, 185, 80, 0.08); }
+  .item-compact { display: flex; justify-content: space-between; gap: 8px; }
+  .item-label { font-weight: 600; }
+  .item-time { color: var(--muted); font-size: 11px; white-space: nowrap; }
   .empty { color: var(--muted); font-size: 12px; }
+  .hover-tip {
+    position: fixed;
+    z-index: 1000;
+    max-width: 320px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    font-size: 11px;
+    line-height: 1.45;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .hover-tip[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -260,6 +279,7 @@ function getSidebarHtml(): string {
 
   <h1>最近のマイクロ履歴</h1>
   <div class="list" id="commit-list"><div class="empty">履歴はまだありません</div></div>
+  <div id="sidebar-tip" class="hover-tip" hidden></div>
 
   <script>
     const vscode = acquireVsCodeApi();
@@ -272,6 +292,7 @@ function getSidebarHtml(): string {
     const btnGraph = document.getElementById('btn-graph');
     const btnJump = document.getElementById('btn-jump');
     const btnExport = document.getElementById('btn-export');
+    const sidebarTip = document.getElementById('sidebar-tip');
 
     document.getElementById('btn-toggle').onclick = () => vscode.postMessage({ command: 'toggle' });
     btnGraph.onclick = () => vscode.postMessage({ command: 'showGraph' });
@@ -280,6 +301,47 @@ function getSidebarHtml(): string {
 
     function short(hash) {
       return hash ? hash.substring(0, 7) : '-';
+    }
+
+    function commitLabel(c) {
+      if (c.tags && c.tags.length) {
+        return c.tags[c.tags.length - 1];
+      }
+      return short(c.hash);
+    }
+
+    function shortTime(timestamp) {
+      if (!timestamp) { return '-'; }
+      const parts = String(timestamp).split(' ');
+      const timePart = parts.length > 1 ? parts[parts.length - 1] : timestamp;
+      return timePart.length >= 5 ? timePart.slice(0, 5) : timePart;
+    }
+
+    function commitDetailText(c) {
+      const lines = [
+        'hash: ' + (c.hash || '-'),
+        'message: ' + (c.subject || '(no message)'),
+        'time: ' + (c.timestamp || '-'),
+      ];
+      if (c.tags && c.tags.length) {
+        lines.push('tags: ' + c.tags.join(', '));
+      }
+      if (c.parents && c.parents.length) {
+        lines.push('parents: ' + c.parents.map(short).join(', '));
+      }
+      return lines.join('\\n');
+    }
+
+    function showTip(tipEl, text, target) {
+      tipEl.textContent = text;
+      tipEl.hidden = false;
+      const rect = target.getBoundingClientRect();
+      tipEl.style.left = Math.min(rect.left, window.innerWidth - 330) + 'px';
+      tipEl.style.top = (rect.bottom + 6) + 'px';
+    }
+
+    function hideTip(tipEl) {
+      tipEl.hidden = true;
     }
 
     function render(payload) {
@@ -304,18 +366,21 @@ function getSidebarHtml(): string {
         return;
       }
 
+      hideTip(sidebarTip);
       commitList.innerHTML = '';
       commits.forEach((c) => {
         const btn = document.createElement('button');
         btn.className = 'item' + (c.hash === payload.currentHead ? ' active' : '');
         btn.disabled = !active;
         btn.innerHTML =
-          '<div class="hash">' + short(c.hash) + ' · ' + (c.timestamp || '') + '</div>' +
-          '<div class="subject"></div>' +
-          (c.tags && c.tags.length ? '<div class="tags"></div>' : '');
-        btn.querySelector('.subject').textContent = c.subject || '(no message)';
-        const tagsEl = btn.querySelector('.tags');
-        if (tagsEl) { tagsEl.textContent = '[' + c.tags.join(', ') + ']'; }
+          '<div class="item-compact">' +
+            '<span class="item-label"></span>' +
+            '<span class="item-time"></span>' +
+          '</div>';
+        btn.querySelector('.item-label').textContent = commitLabel(c);
+        btn.querySelector('.item-time').textContent = shortTime(c.timestamp);
+        btn.onmouseenter = () => showTip(sidebarTip, commitDetailText(c), btn);
+        btn.onmouseleave = () => hideTip(sidebarTip);
         btn.onclick = () => vscode.postMessage({ command: 'jumpToCommit', hash: c.hash });
         commitList.appendChild(btn);
       });
@@ -346,7 +411,9 @@ function getGraphHtml(): string {
     font-family: var(--vscode-font-family, sans-serif);
     background: var(--vscode-editor-background, #1e1e1e);
     color: var(--vscode-editor-foreground, #fff);
+    overflow-x: auto;
   }
+  #graph-area { display: block; }
   .header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
   h3 { margin: 0; color: var(--vscode-descriptionForeground, #888); font-weight: 600; }
   .meta { color: var(--vscode-descriptionForeground, #888); font-size: 12px; }
@@ -355,8 +422,33 @@ function getGraphHtml(): string {
   .node:hover { fill: #fff; }
   .node.current { fill: #3fb950; stroke: #fff; stroke-width: 2px; }
   .line { stroke: #555; stroke-width: 3px; fill: none; }
-  .text { fill: var(--vscode-editor-foreground, #ccc); font-size: 13px; pointer-events: none; }
-  .tag-text { fill: #007acc; font-size: 11px; font-weight: bold; }
+  .node-label {
+    fill: var(--vscode-editor-foreground, #ccc);
+    font-size: 11px;
+    font-family: var(--vscode-editor-font-family, monospace);
+    pointer-events: none;
+  }
+  .node-label.tag {
+    fill: #58a6ff;
+    font-weight: 600;
+  }
+  .hover-tip {
+    position: fixed;
+    z-index: 1000;
+    max-width: 360px;
+    padding: 8px 10px;
+    border-radius: 6px;
+    border: 1px solid var(--vscode-panel-border, #555);
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-editor-foreground, #fff);
+    font-size: 11px;
+    line-height: 1.45;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+    white-space: pre-wrap;
+    word-break: break-all;
+  }
+  .hover-tip[hidden] { display: none; }
 </style>
 </head>
 <body>
@@ -366,17 +458,65 @@ function getGraphHtml(): string {
   </div>
   <div id="empty" hidden>履歴がまだありません。</div>
   <svg id="graph-area" width="100%" height="80px"></svg>
+  <div id="graph-tip" class="hover-tip" hidden></div>
   <script>
     const vscode = acquireVsCodeApi();
     const svg = document.getElementById('graph-area');
     const empty = document.getElementById('empty');
     const meta = document.getElementById('meta');
+    const graphTip = document.getElementById('graph-tip');
+
+    function short(hash) {
+      return hash ? hash.substring(0, 7) : '-';
+    }
+
+    function commitLabel(commit) {
+      if (commit.tags && commit.tags.length) {
+        return commit.tags[commit.tags.length - 1];
+      }
+      return short(commit.hash);
+    }
+
+    function shortTime(timestamp) {
+      if (!timestamp) { return '-'; }
+      const parts = String(timestamp).split(' ');
+      const timePart = parts.length > 1 ? parts[parts.length - 1] : timestamp;
+      return timePart.length >= 5 ? timePart.slice(0, 5) : timePart;
+    }
+
+    function commitDetailText(commit) {
+      const lines = [
+        'hash: ' + (commit.hash || '-'),
+        'message: ' + (commit.subject || '(no message)'),
+        'time: ' + (commit.timestamp || '-'),
+      ];
+      if (commit.tags && commit.tags.length) {
+        lines.push('tags: ' + commit.tags.join(', '));
+      }
+      if (commit.parents && commit.parents.length) {
+        lines.push('parents: ' + commit.parents.map(short).join(', '));
+      }
+      return lines.join('\\n');
+    }
+
+    function showTip(text, target) {
+      graphTip.textContent = text;
+      graphTip.hidden = false;
+      const rect = target.getBoundingClientRect();
+      graphTip.style.left = Math.min(rect.left, window.innerWidth - 370) + 'px';
+      graphTip.style.top = (rect.bottom + 8) + 'px';
+    }
+
+    function hideTip() {
+      graphTip.hidden = true;
+    }
 
     function render(payload) {
       const commitsAsc = Array.isArray(payload.commits) ? payload.commits.slice().reverse() : [];
-      meta.textContent = 'tag: ' + (payload.currentTag || '-') + ' / HEAD: ' +
+      meta.textContent = (payload.currentTag || '-') + ' · ' +
         (payload.currentHead ? payload.currentHead.substring(0, 7) : '-');
 
+      hideTip();
       while (svg.firstChild) { svg.removeChild(svg.firstChild); }
 
       if (!commitsAsc.length) {
@@ -387,7 +527,9 @@ function getGraphHtml(): string {
       empty.hidden = true;
 
       const nodeMap = new Map();
-      const yInterval = 60;
+      const yInterval = 52;
+      const laneSpacing = 56;
+      const leftPad = 28;
       const branchLanes = new Map();
       let currentMaxLane = 0;
 
@@ -403,10 +545,21 @@ function getGraphHtml(): string {
           }
         }
         branchLanes.set(c.hash, lane);
-        nodeMap.set(c.hash, { x: 40 + (lane * 35), y: i * yInterval + 30 });
+        nodeMap.set(c.hash, {
+          x: leftPad + (lane * laneSpacing),
+          y: i * yInterval + 28,
+          lane,
+        });
       });
 
-      svg.setAttribute('height', (commitsAsc.length * yInterval + 50) + 'px');
+      // ラベルは全レーンの右外側の共通列に置き、枝同士の文字被りを防ぐ
+      const labelColumnX = leftPad + ((currentMaxLane + 1) * laneSpacing) + 16;
+      const approxLabelWidth = 120;
+      const svgWidth = Math.max(labelColumnX + approxLabelWidth + 24, 280);
+      svg.setAttribute('height', (commitsAsc.length * yInterval + 40) + 'px');
+      svg.setAttribute('width', svgWidth + 'px');
+      svg.style.minWidth = svgWidth + 'px';
+      svg.style.overflow = 'visible';
 
       commitsAsc.forEach((c) => {
         const childPos = nodeMap.get(c.hash);
@@ -431,23 +584,28 @@ function getGraphHtml(): string {
         circle.setAttribute('r', commit.hash === payload.currentHead ? '9' : '8');
         circle.setAttribute('class', 'node' + (commit.hash === payload.currentHead ? ' current' : ''));
         circle.onclick = () => vscode.postMessage({ command: 'jumpToCommit', hash: commit.hash });
+        circle.onmouseenter = () => showTip(commitDetailText(commit), circle);
+        circle.onmouseleave = hideTip;
         svg.appendChild(circle);
 
-        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-        text.setAttribute('x', pos.x + 20);
-        text.setAttribute('y', pos.y + 5);
-        text.setAttribute('class', 'text');
-        text.textContent = commit.hash.substring(0, 7) + ' - ' + commit.subject;
-        svg.appendChild(text);
+        // ノードからラベル列への短いガイド線
+        const guide = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        guide.setAttribute('x1', pos.x + 10);
+        guide.setAttribute('y1', pos.y);
+        guide.setAttribute('x2', labelColumnX - 6);
+        guide.setAttribute('y2', pos.y);
+        guide.setAttribute('stroke', '#444');
+        guide.setAttribute('stroke-width', '1');
+        guide.setAttribute('stroke-dasharray', '2 3');
+        svg.appendChild(guide);
 
-        if (commit.tags && commit.tags.length) {
-          const tagText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-          tagText.setAttribute('x', pos.x + 20);
-          tagText.setAttribute('y', pos.y + 20);
-          tagText.setAttribute('class', 'tag-text');
-          tagText.textContent = '[' + commit.tags.join(', ') + ']';
-          svg.appendChild(tagText);
-        }
+        const hasTag = commit.tags && commit.tags.length;
+        const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        label.setAttribute('x', labelColumnX);
+        label.setAttribute('y', pos.y + 4);
+        label.setAttribute('class', 'node-label' + (hasTag ? ' tag' : ''));
+        label.textContent = commitLabel(commit) + '  ' + shortTime(commit.timestamp);
+        svg.appendChild(label);
       });
     }
 

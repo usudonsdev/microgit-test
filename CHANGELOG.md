@@ -2,6 +2,17 @@
 
 All notable changes to the "MicroGit" extension will be documented in this file.
 
+## [3.3.0] - 2026-07-25
+
+### Added
+- Stage 1a Overlay checkout（ユーザー空間マージ）: `.microgit_overlay` にレイヤを書き出し、分岐パスだけを materialize して兄弟ブランチのファイル干渉を防ぐ
+- 設定 `microgit.useOverlayCheckout`（デフォルト on）。オフで従来の git show 同期に戻せる
+- 過去状態検知を拡張: 全体 tree 一致に加え、保存ファイルの blob 一致でも HEAD を巻き戻す（Ctrl+Z / 手編集戻し）
+
+### Changed
+- タイムライングラフ: レーン間隔を広げ、ラベルを右外側の共通列に配置して文字被りを解消
+- サイドバー / グラフの表示をコンパクト化し、ホバーで詳細を表示
+
 ## [3.2.0] - 2026-07-04
 
 ### Added

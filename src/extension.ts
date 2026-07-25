@@ -2,11 +2,25 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as vscode from 'vscode';
+import {
+    OVERLAY_DIR,
+    collectShadowTrackedFiles,
+    computePath,
+    ensureLayerExists,
+    ensureOverlayDirs,
+    exportCommitLayer,
+    isOverlayCheckoutEnabled,
+    materializeMerge,
+    removeFromWriteLayer,
+    syncMergeToWorkspace,
+    updateDagCurrent,
+    writeLayerDir,
+} from './overlay';
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
 
 const STATE_ENABLED = 'microgit.enabled';
 const STATE_TARGET_BRANCH = 'microgit.targetBranch';
-const ARTIFACT_DIRS = ['.microgit_shadow', '.microgit_logs'] as const;
+const ARTIFACT_DIRS = ['.microgit_shadow', '.microgit_logs', OVERLAY_DIR] as const;
 
 /** 現在ユーザーがどのタイムライン（マイクロブランチ）の延長線上にいるか */
 let currentMicroBranchTag: string = 'mb-1';
@@ -86,6 +100,12 @@ export function activate(context: vscode.ExtensionContext) {
                 const result = await runShadowCommit(rootPath, document.fileName);
                 if (result === 'created' || result === 'rewound') {
                     await generateMicroGitFileLog(rootPath, document.fileName);
+                    if (useOverlayCheckout()) {
+                        const head = tryRunGit(path.join(rootPath, '.microgit_shadow'), ['rev-parse', 'HEAD'])?.trim();
+                        if (head) {
+                            await applyOverlayCheckout(rootPath, head, { syncWorkspace: result === 'rewound' });
+                        }
+                    }
                 }
                 await ExtensionLogger.exportLogFile(rootPath);
                 refreshUi(rootPath);
@@ -537,6 +557,63 @@ async function generateMicroGitFileLog(rootPath: string, savedFilePath: string):
     }
 }
 
+function useOverlayCheckout(): boolean {
+    return isOverlayCheckoutEnabled((key) =>
+        vscode.workspace.getConfiguration().get<boolean>(key)
+    );
+}
+
+/**
+ * Stage 1a: computePath → materializeMerge →（任意で）workspace 同期
+ */
+async function applyOverlayCheckout(
+    rootPath: string,
+    targetHash: string,
+    options?: { syncWorkspace?: boolean },
+): Promise<void> {
+    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const syncWorkspace = options?.syncWorkspace !== false;
+    const paths = ensureOverlayDirs(rootPath);
+    writeLayerDir(paths, currentMicroBranchTag);
+
+    const layerPath = computePath(shadowRepoPath, targetHash, runGit, tryRunGit);
+    for (const hash of layerPath) {
+        ensureLayerExists(shadowRepoPath, paths, hash, runGit, tryRunGit);
+    }
+
+    materializeMerge(paths, layerPath, currentMicroBranchTag);
+    updateDagCurrent(paths, targetHash, currentMicroBranchTag);
+
+    if (!syncWorkspace) {
+        ExtensionLogger.log(
+            `[Overlay/1a] merge 更新のみ path=${layerPath.map((h) => h.substring(0, 7)).join('→')} write=${currentMicroBranchTag}`
+        );
+        return;
+    }
+
+    const { written, deleted } = syncMergeToWorkspace(
+        rootPath,
+        paths,
+        isSafeRepoRelativePath,
+        isMicroGitArtifactPath,
+        collectShadowTrackedFiles(shadowRepoPath, tryRunGit),
+    );
+
+    const touched = new Set([...written, ...deleted]);
+    for (const doc of vscode.workspace.textDocuments) {
+        const rel = toPosixRelative(rootPath, doc.uri.fsPath);
+        if (!rel || !touched.has(rel)) { continue; }
+        try {
+            await vscode.commands.executeCommand('workbench.action.files.revert', doc.uri);
+        } catch { /* ignore */ }
+    }
+
+    ExtensionLogger.log(
+        `[Overlay/1a] materialize path=${layerPath.map((h) => h.substring(0, 7)).join('→')} ` +
+        `write=${currentMicroBranchTag} written=${written.length} deleted=${deleted.length}`
+    );
+}
+
 async function sharedTimeTravel(target: string, rootPath: string): Promise<void> {
     const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
 
@@ -558,43 +635,47 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
         runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', targetHash]);
         runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
 
-        const affectedFilesStr = runGit(shadowRepoPath, ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).trim();
-        const affectedFiles = affectedFilesStr.split('\n').filter(Boolean);
-
-        if (affectedFiles.length === 0) {
-            const allFilesStr = runGit(shadowRepoPath, ['ls-tree', '--name-only', '-r', 'HEAD']).trim();
-            affectedFiles.push(...allFilesStr.split('\n').filter(Boolean));
-        }
-
-        for (const relPath of affectedFiles) {
-            if (!isSafeRepoRelativePath(relPath, rootPath)) {
-                ExtensionLogger.log(`不正なパスをスキップしました: ${relPath}`, 'WARN');
-                continue;
-            }
-            const targetWorkspacePath = path.join(rootPath, relPath);
-            try {
-                const fileContent = execFileSync('git', ['show', `HEAD:${relPath}`], {
-                    cwd: shadowRepoPath,
-                    stdio: ['pipe', 'pipe', 'pipe'],
-                    windowsHide: true,
-                });
-                if (!fs.existsSync(path.dirname(targetWorkspacePath))) {
-                    fs.mkdirSync(path.dirname(targetWorkspacePath), { recursive: true });
-                }
-                fs.writeFileSync(targetWorkspacePath, fileContent);
-            } catch {
-                if (fs.existsSync(targetWorkspacePath)) {
-                    fs.unlinkSync(targetWorkspacePath);
-                }
-            }
-        }
-
         if (target.startsWith('mb-')) {
             currentMicroBranchTag = target;
         } else {
             const attachedTag = tryRunGit(shadowRepoPath, ['tag', '--points-at', 'HEAD', '-l', 'mb-*'])?.trim();
             if (attachedTag) {
                 currentMicroBranchTag = attachedTag.split('\n')[0];
+            }
+        }
+
+        if (useOverlayCheckout()) {
+            await applyOverlayCheckout(rootPath, targetHash, { syncWorkspace: true });
+        } else {
+            const affectedFilesStr = runGit(shadowRepoPath, ['diff-tree', '--no-commit-id', '--name-only', '-r', 'HEAD']).trim();
+            const affectedFiles = affectedFilesStr.split('\n').filter(Boolean);
+
+            if (affectedFiles.length === 0) {
+                const allFilesStr = runGit(shadowRepoPath, ['ls-tree', '--name-only', '-r', 'HEAD']).trim();
+                affectedFiles.push(...allFilesStr.split('\n').filter(Boolean));
+            }
+
+            for (const relPath of affectedFiles) {
+                if (!isSafeRepoRelativePath(relPath, rootPath)) {
+                    ExtensionLogger.log(`不正なパスをスキップしました: ${relPath}`, 'WARN');
+                    continue;
+                }
+                const targetWorkspacePath = path.join(rootPath, relPath);
+                try {
+                    const fileContent = execFileSync('git', ['show', `HEAD:${relPath}`], {
+                        cwd: shadowRepoPath,
+                        stdio: ['pipe', 'pipe', 'pipe'],
+                        windowsHide: true,
+                    });
+                    if (!fs.existsSync(path.dirname(targetWorkspacePath))) {
+                        fs.mkdirSync(path.dirname(targetWorkspacePath), { recursive: true });
+                    }
+                    fs.writeFileSync(targetWorkspacePath, fileContent);
+                } catch {
+                    if (fs.existsSync(targetWorkspacePath)) {
+                        fs.unlinkSync(targetWorkspacePath);
+                    }
+                }
             }
         }
 
@@ -608,6 +689,50 @@ async function sharedTimeTravel(target: string, rootPath: string): Promise<void>
 }
 
 type ShadowCommitResult = 'created' | 'unchanged' | 'rewound' | 'skipped' | 'error';
+
+type PastCommitMatch = {
+    commit: string;
+    /** tree: ワークツリー全体が一致 / file: 保存ファイルの内容のみ過去と一致（Ctrl+Z・手編集戻し） */
+    reason: 'tree' | 'file';
+};
+
+/**
+ * 保存内容が過去コミットと一致するか調べる。
+ * 1) 全体 tree 一致（完全な過去状態）
+ * 2) 保存ファイルの blob 一致（1ファイルだけ Ctrl+Z / 手編集で戻した場合）
+ */
+function findPastCommitForSave(
+    shadowRepoPath: string,
+    relativeFilePath: string,
+    currentTreeHash: string,
+): PastCommitMatch | undefined {
+    const treeLog = runGit(shadowRepoPath, ['log', '--all', '--format=%H %T']).trim().split('\n').filter(Boolean);
+    for (const line of treeLog) {
+        const [cHash, tHash] = line.split(' ');
+        if (tHash === currentTreeHash && isSafeGitRef(cHash)) {
+            return { commit: cHash, reason: 'tree' };
+        }
+    }
+
+    const currentBlob = tryRunGit(shadowRepoPath, ['hash-object', '--', relativeFilePath])?.trim();
+    if (!currentBlob || !/^[0-9a-f]{40}$/i.test(currentBlob)) {
+        return undefined;
+    }
+
+    const fileLog = runGit(shadowRepoPath, ['log', '--all', '--format=%H', '--', relativeFilePath])
+        .trim()
+        .split('\n')
+        .filter(Boolean);
+    for (const cHash of fileLog) {
+        if (!isSafeGitRef(cHash)) { continue; }
+        // パス区切りは toPosixRelative 済み。rev-parse の tree:path 形式で blob を取得する
+        const blob = tryRunGit(shadowRepoPath, ['rev-parse', '--verify', `${cHash}:${relativeFilePath}`])?.trim();
+        if (blob === currentBlob) {
+            return { commit: cHash, reason: 'file' };
+        }
+    }
+    return undefined;
+}
 
 /** シャドウ領域が git リポジトリとして使える状態にする（フォルダだけ残っている場合も再初期化） */
 function ensureShadowRepo(shadowRepoPath: string): void {
@@ -685,30 +810,27 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
             currentHead = runGit(shadowRepoPath, ['rev-parse', 'HEAD']).trim();
         }
 
-        let matchingCommit = '';
-        if (hasCommits) {
-            const logOutput = runGit(shadowRepoPath, ['log', '--all', '--format=%H %T']).trim().split('\n');
-            for (const line of logOutput) {
-                const [cHash, tHash] = line.split(' ');
-                if (tHash === currentTreeHash && isSafeGitRef(cHash)) {
-                    matchingCommit = cHash;
-                    break;
-                }
-            }
-        }
+        const pastMatch = hasCommits
+            ? findPastCommitForSave(shadowRepoPath, relativeFilePath, currentTreeHash)
+            : undefined;
 
-        if (matchingCommit && currentHead !== matchingCommit) {
-            runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', matchingCommit]);
+        if (pastMatch && currentHead !== pastMatch.commit) {
+            runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', pastMatch.commit]);
             runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
             const attachedTag = tryRunGit(shadowRepoPath, ['tag', '--points-at', 'HEAD', '-l', 'mb-*'])?.trim();
             if (attachedTag) {
                 currentMicroBranchTag = attachedTag.split('\n')[0];
             }
-            ExtensionLogger.log(`[Ctrl+Z検知] 過去の状態へ戻りました: ${matchingCommit.substring(0, 7)}`);
-            vscode.window.setStatusBarMessage(`[MicroGit] 過去状態へ復帰 ${matchingCommit.substring(0, 7)}`, 3000);
+            ExtensionLogger.log(
+                `[過去状態検知/${pastMatch.reason}] HEAD を戻しました: ${pastMatch.commit.substring(0, 7)} (${relativeFilePath})`
+            );
+            vscode.window.setStatusBarMessage(
+                `[MicroGit] 過去状態へ復帰 ${pastMatch.commit.substring(0, 7)}`,
+                3000
+            );
             return 'rewound';
         }
-        if (matchingCommit && currentHead === matchingCommit) {
+        if (pastMatch && currentHead === pastMatch.commit) {
             return 'unchanged';
         }
 
@@ -750,6 +872,28 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
                 currentMicroBranchTag = 'mb-1';
             }
             runGit(shadowRepoPath, ['tag', '-f', currentMicroBranchTag, commitHash]);
+        }
+
+        if (useOverlayCheckout()) {
+            try {
+                const overlayPaths = ensureOverlayDirs(mainRepoPath);
+                exportCommitLayer(
+                    shadowRepoPath,
+                    overlayPaths,
+                    commitHash,
+                    currentHead || undefined,
+                    currentMicroBranchTag,
+                    runGit,
+                    tryRunGit,
+                );
+                removeFromWriteLayer(overlayPaths, currentMicroBranchTag, relativeFilePath);
+                ExtensionLogger.log(
+                    `[Overlay/1a] レイヤ書き出し: layers/${commitHash.substring(0, 7)} (${relativeFilePath})`
+                );
+            } catch (overlayErr: unknown) {
+                const msg = overlayErr instanceof Error ? overlayErr.message : String(overlayErr);
+                ExtensionLogger.log(`[Overlay/1a] レイヤ書き出しに失敗: ${msg}`, 'WARN');
+            }
         }
 
         ExtensionLogger.log(`シャドウコミット作成: ${commitHash.substring(0, 7)} (${relativeFilePath}) tag=${currentMicroBranchTag}`);

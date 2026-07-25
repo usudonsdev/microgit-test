@@ -6,3 +6,4 @@ node_modules
 
 .microgit_shadow/
 .microgit_logs/
+.microgit_overlay/
