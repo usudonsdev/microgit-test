@@ -1,6 +1,6 @@
+import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
-import { execFileSync } from 'child_process';
 
 export const OVERLAY_DIR = '.microgit_overlay';
 
