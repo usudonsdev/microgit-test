@@ -325,13 +325,15 @@ function getSidebarHtml(): string {
       return cleaned || short(c.hash);
     }
 
-    /** 非ホバー時の一行表示: AI 由来は [AI] (更新内容) */
+    /** 非ホバー時: ブランチ先端は mb-N、それ以外は短縮ハッシュ。AI は [AI] 付き */
     function compactDisplay(c) {
       const summary = updateSummary(c);
+      const tipTag = (c.tags || []).filter((t) => /^mb-\\d+$/.test(t)).pop();
+      const head = tipTag || short(c.hash);
       if (isAiCommit(c)) {
-        return '[AI] (' + summary + ')';
+        return head + ' [AI] (' + summary + ')';
       }
-      return commitLabel(c) + ' (' + summary + ')';
+      return head + ' (' + summary + ')';
     }
 
     function shortTime(timestamp) {
@@ -520,10 +522,12 @@ function getGraphHtml(): string {
 
     function compactDisplay(commit) {
       const summary = updateSummary(commit);
+      const tipTag = (commit.tags || []).filter((t) => /^mb-\\d+$/.test(t)).pop();
+      const head = tipTag || short(commit.hash);
       if (isAiCommit(commit)) {
-        return '[AI] (' + summary + ')';
+        return head + ' [AI] (' + summary + ')';
       }
-      return commitLabel(commit) + ' (' + summary + ')';
+      return head + ' (' + summary + ')';
     }
 
     function shortTime(timestamp) {

@@ -12,12 +12,6 @@
         "command": ".cursor/hooks/mark-ai-edit.sh",
         "timeout": 15
       }
-    ],
-    "stop": [
-      {
-        "command": ".cursor/hooks/auto-commit-on-stop.sh",
-        "timeout": 60
-      }
     ]
   }
 }

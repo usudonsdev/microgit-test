@@ -831,6 +831,7 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
             currentHead = runGit(shadowRepoPath, ['rev-parse', 'HEAD']).trim();
         }
 
+        // 以前と同じ変更（同一 tree / 同一ファイル内容）→ 新規コミットも新 mb-* も作らず HEAD だけ戻す
         const pastMatch = hasCommits
             ? findPastCommitForSave(shadowRepoPath, relativeFilePath, currentTreeHash)
             : undefined;
@@ -838,15 +839,18 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
         if (pastMatch && currentHead !== pastMatch.commit) {
             runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', pastMatch.commit]);
             runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
+
+            // mb-* はブランチ先端にだけ付く。先端へ戻ったときだけアクティブブランチを切替。
             const attachedTag = tryRunGit(shadowRepoPath, ['tag', '--points-at', 'HEAD', '-l', 'mb-*'])?.trim();
             if (attachedTag) {
                 currentMicroBranchTag = attachedTag.split('\n')[0];
             }
+
             ExtensionLogger.log(
-                `[過去状態検知/${pastMatch.reason}] HEAD を戻しました: ${pastMatch.commit.substring(0, 7)} (${relativeFilePath})`
+                `[同一変更/${pastMatch.reason}] 新規コミットなし。HEAD→${pastMatch.commit.substring(0, 7)} (active=${currentMicroBranchTag})`
             );
             vscode.window.setStatusBarMessage(
-                `[MicroGit] 過去状態へ復帰 ${pastMatch.commit.substring(0, 7)}`,
+                `[MicroGit] 同一変更のため HEAD のみ復帰 ${pastMatch.commit.substring(0, 7)}`,
                 3000
             );
             return 'rewound';
@@ -886,15 +890,17 @@ async function runShadowCommit(mainRepoPath: string, savedFilePath: string): Pro
         runGit(shadowRepoPath, ['update-ref', 'refs/heads/micro-history', commitHash]);
         runGit(shadowRepoPath, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
 
+        // mb-* は各マイクロブランチの先端にだけ付ける（タグ数 = ブランチ数）。
+        // 同一ブランチ上の前進 → 先端タグを -f で移動。先端以外から保存 → 新ブランチ mb-N。
+        if (!isSafeGitRef(currentMicroBranchTag)) {
+            currentMicroBranchTag = 'mb-1';
+        }
         const tipOfCurrentTag = tryRunGit(shadowRepoPath, ['rev-parse', currentMicroBranchTag])?.trim();
         if (currentHead && tipOfCurrentTag && currentHead !== tipOfCurrentTag) {
             const nextTag = getNextTagCode(shadowRepoPath);
             runGit(shadowRepoPath, ['tag', nextTag, commitHash]);
             currentMicroBranchTag = nextTag;
         } else {
-            if (!isSafeGitRef(currentMicroBranchTag)) {
-                currentMicroBranchTag = 'mb-1';
-            }
             runGit(shadowRepoPath, ['tag', '-f', currentMicroBranchTag, commitHash]);
         }
 

@@ -2,12 +2,22 @@
 
 All notable changes to the "MicroGit" extension will be documented in this file.
 
+## [3.4.1] - 2026-07-26
+
+### Changed
+- `mb-*` は各マイクロブランチの**先端のみ**に付与（タグ数 = ブランチ数）。同一ブランチ上の前進は tip を移動
+- 同一内容の再保存は新規コミットせず HEAD のみ復帰
+- 通常 git への Agent 自動コミット hook を廃止（記録はマイクロ履歴のみ）
+
+### Fixed
+- 非ホバー表示: 先端は `mb-N (…)`, 途中ノードは短縮ハッシュ
+
 ## [3.4.0] - 2026-07-26
 
 ### Added
 - Cursor Agent / Tab 編集を検知し、マイクロ履歴に `[AI]` 付きで記録
 - サイドバー・グラフの非ホバー表示: `[AI] (更新内容)` / `mb-N (更新内容)`
-- Agent 終了時に作業ツリーを自動 git commit する stop hook（`.cursor/hooks`）
+- Agent 編集検知用の afterFileEdit hook（`.cursor/hooks`）
 
 ## [3.3.0] - 2026-07-25
 
