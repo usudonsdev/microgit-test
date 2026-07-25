@@ -12,6 +12,8 @@ vsc-extension-quickstart.md
 
 .microgit_logs/**
 .microgit_shadow/**
+.microgit_overlay/**
+photo/**
 test_dummy.py
 
 .github/**
