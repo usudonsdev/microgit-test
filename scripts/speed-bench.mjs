@@ -123,15 +123,34 @@ for (let c = 0; c < COMMITS; c++) {
   const t0 = hr();
   runGit(shadow, ['add', '--', rel]);
   const tree = runGit(shadow, ['write-tree']).trim();
+  // tip 同一 tree なら commit 省略（本番の early-exit）
+  const headTree = runGit(shadow, ['rev-parse', 'HEAD^{tree}']).trim();
+  if (headTree === tree) {
+    commitTimes.push(ms(t0));
+    continue;
+  }
   const hash = runGit(shadow, ['commit-tree', tree, '-p', parent, '-m', `micro ${c}`]).trim();
   runGit(shadow, ['update-ref', 'refs/heads/micro-history', hash]);
   parent = hash;
   commitTimes.push(ms(t0));
 }
 
+// 同一内容の再保存（early-exit）を別計測
+const noopTimes = [];
+const lastRel = `src/f${String(0).padStart(4, '0')}.txt`;
+for (let i = 0; i < 10; i++) {
+  const t0 = hr();
+  runGit(shadow, ['add', '--', lastRel]);
+  const tree = runGit(shadow, ['write-tree']).trim();
+  const headTree = runGit(shadow, ['rev-parse', 'HEAD^{tree}']).trim();
+  if (headTree !== tree) throw new Error('expected noop tree match');
+  noopTimes.push(ms(t0));
+}
+
 console.log('\n[1] Shadow git (commit-tree path)');
 console.log(`  seed ${FILES} files: ${fmt(seedMs)}`);
 console.log(`  per-save avg: ${fmt(avg(commitTimes))}  p95: ${fmt(p95(commitTimes))}  min: ${fmt(Math.min(...commitTimes))}  max: ${fmt(Math.max(...commitTimes))}`);
+console.log(`  noop/unchanged avg: ${fmt(avg(noopTimes))}  p95: ${fmt(p95(noopTimes))}`);
 
 // --- 2) Overlay: 初回展開 / 増分 / キャッシュ切替 ---
 const paths = ensureOverlayDirs(workspace);

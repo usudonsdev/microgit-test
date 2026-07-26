@@ -45,6 +45,10 @@ let pendingSaveJobs = 0;
 let lastKnownBranch: string | undefined;
 /** 直近エンキューした保存ジョブ（キュー未消化中の同一内容連続保存を畳む） */
 let lastEnqueuedSave: { absPath: string; contentHash: string } | undefined;
+/** 親 refs への publish を間引く */
+let publishTimer: ReturnType<typeof setTimeout> | undefined;
+let pendingPublishJob: { rootPath: string; branch: string } | undefined;
+const PUBLISH_DEBOUNCE_MS = 1500;
 
 /**
  * 拡張機能がアクティブになった際に呼び出されるエントリポイント
@@ -398,6 +402,26 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
 
 function enqueueSave(task: () => Promise<void>): void {
     saveChain = saveChain.then(task, task);
+}
+
+/** 保存のたびに親 refs へ push しない。連続保存は最後の1回に間引く */
+function schedulePublishToParent(rootPath: string, branch: string): void {
+    pendingPublishJob = { rootPath, branch };
+    if (publishTimer) {
+        clearTimeout(publishTimer);
+    }
+    publishTimer = setTimeout(() => {
+        const job = pendingPublishJob;
+        pendingPublishJob = undefined;
+        publishTimer = undefined;
+        if (!job) { return; }
+        try {
+            publishToParentRefs(job.rootPath, job.branch, (m, l) => ExtensionLogger.log(m, l));
+        } catch (pubErr: unknown) {
+            const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
+            ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
+        }
+    }, PUBLISH_DEBOUNCE_MS);
 }
 
 /** onDidSave 時点のファイル内容を固定する（以降のディスク変化の影響を受けない） */
@@ -1004,6 +1028,11 @@ async function runShadowCommit(
         let currentHead = '';
         if (hasCommits) {
             currentHead = runGit(shadowRepoPath, ['rev-parse', 'HEAD']).trim();
+            const headTree = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD^{tree}'])?.trim() ?? '';
+            // tip と同じ tree → 過去探索・commit-tree を省略
+            if (headTree && headTree === currentTreeHash) {
+                return 'unchanged';
+            }
         }
 
         // 以前と同じ変更（同一 tree / 同一ファイル内容）→ 新規コミットも新 mb-* も作らず HEAD だけ戻す
@@ -1030,9 +1059,7 @@ async function runShadowCommit(
             );
             const branchRewind = getCurrentBranch(mainRepoPath);
             if (isRecordableBranch(branchRewind)) {
-                try {
-                    publishToParentRefs(mainRepoPath, branchRewind!, (m, l) => ExtensionLogger.log(m, l));
-                } catch { /* publish best-effort */ }
+                schedulePublishToParent(mainRepoPath, branchRewind!);
             }
             return 'rewound';
         }
@@ -1110,12 +1137,7 @@ async function runShadowCommit(
 
         const branch = getCurrentBranch(mainRepoPath);
         if (isRecordableBranch(branch)) {
-            try {
-                publishToParentRefs(mainRepoPath, branch!, (m, l) => ExtensionLogger.log(m, l));
-            } catch (pubErr: unknown) {
-                const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
-                ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
-            }
+            schedulePublishToParent(mainRepoPath, branch!);
         }
 
         ExtensionLogger.log(`シャドウコミット作成: ${commitHash.substring(0, 7)} (${relativeFilePath}) tag=${currentMicroBranchTag}`);
