@@ -21,10 +21,10 @@ Git のチェックアウトを OverlayFS で速くする、という話を論�
 - チェックアウトは Git の blob 展開ではなく、**Overlay の考え方＋展開済みビュー** で軽くする
 - 各マイクロコミットに当時のメイン `HEAD`（`Main-Head`）を付け、**メインコミット区間**で履歴を絞り込める
 
-- Cursor / Open VSX: [microgit](https://open-vsx.org/extension/usudonsdev/microgit)
-- VS Code Marketplace: [microgit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
-- リポジトリ: [GitHub — microgit](https://github.com/usudonsdev/microgit)
-- 参考にした論文: 三原公平, 柗本真佑, 楠本真二, [OverlayGit：OverlayFSを用いた高速なGitファイルシステム](https://sdl.ist.osaka-u.ac.jp/pman/pman3.cgi?D=882), 情報処理学会論文誌, 2025
+Cursor / Open VSX: [microgit](https://open-vsx.org/extension/usudonsdev/microgit)
+VS Code Marketplace: [microgit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
+リポジトリ: [GitHub — microgit](https://github.com/usudonsdev/microgit)
+参考にした論文: 三原公平, 柗本真佑, 楠本真二, [OverlayGit：OverlayFSを用いた高速なGitファイルシステム](https://sdl.ist.osaka-u.ac.jp/pman/pman3.cgi?D=882), 情報処理学会論文誌, 2025
 
 ---
 
