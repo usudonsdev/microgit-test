@@ -67,7 +67,7 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
             return;
         }
         if (!this.latest.active) {
-            vscode.window.showWarningMessage('MicroGit が無効、または対象ブランチ以外のためグラフを表示できません。');
+            vscode.window.showWarningMessage('MicroGit が無効、または記録可能なブランチ上にいないためグラフを表示できません。');
             return;
         }
         if (!this.latest.hasShadow) {
@@ -264,7 +264,7 @@ function getSidebarHtml(): string {
   <h1>MicroGit Control</h1>
   <div class="card" id="status-card">
     <div class="row"><span class="label">状態</span><span id="status-badge" class="badge off">OFF</span></div>
-    <div class="row"><span class="label">対象ブランチ</span><span class="value" id="target-branch">-</span></div>
+    <div class="row"><span class="label">マイクロ空間</span><span class="value" id="target-branch">-</span></div>
     <div class="row"><span class="label">現在ブランチ</span><span class="value" id="current-branch">-</span></div>
     <div class="row"><span class="label">マイクロタグ</span><span class="value" id="current-tag">-</span></div>
     <div class="row"><span class="label">HEAD</span><span class="value" id="current-head">-</span></div>

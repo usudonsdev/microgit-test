@@ -33,7 +33,7 @@ let microGitUi: MicroGitUi | undefined;
 let saveChain: Promise<void> = Promise.resolve();
 /** キュー上に残っている保存ジョブ数（同一内容の畳み込み判定に使う） */
 let pendingSaveJobs = 0;
-/** 直前に観測したブランチ名（対象ブランチへの復帰検知用） */
+/** 直前に観測したメインブランチ名（専属マイクロ空間の載せ替え用） */
 let lastKnownBranch: string | undefined;
 /** 直近エンキューした保存ジョブ（キュー未消化中の同一内容連続保存を畳む） */
 let lastEnqueuedSave: { absPath: string; contentHash: string } | undefined;
@@ -153,7 +153,7 @@ export function activate(context: vscode.ExtensionContext) {
             if (isEnabled()) {
                 await setEnabled(false);
                 syncBranchPolicy(rootPath);
-                vscode.window.showInformationMessage('[MicroGit] 無効にしました。自動記録を停止します（対象ブランチ設定は保持）。');
+                vscode.window.showInformationMessage('[MicroGit] 無効にしました。各ブランチのマイクロ履歴は保持されます。');
                 ExtensionLogger.log('MicroGit を無効化しました');
             } else {
                 const branch = getCurrentBranch(rootPath);
@@ -161,10 +161,12 @@ export function activate(context: vscode.ExtensionContext) {
                     vscode.window.showErrorMessage('有効なブランチ上でのみ MicroGit を有効化できます（detached HEAD 不可）。');
                     return;
                 }
-                await setEnabled(true, branch);
+                await setEnabled(true);
                 syncBranchPolicy(rootPath);
-                vscode.window.showInformationMessage(`[MicroGit] 有効化しました（対象ブランチ: ${branch}）`);
-                ExtensionLogger.log(`MicroGit を有効化しました。対象ブランチ: ${branch}`);
+                vscode.window.showInformationMessage(
+                    `[MicroGit] 有効化しました。ブランチごとに専属のマイクロ履歴を使います（現在: ${branch}）`
+                );
+                ExtensionLogger.log(`MicroGit を有効化しました。現在ブランチ: ${branch}`);
             }
             refreshUi(rootPath);
         })
@@ -181,7 +183,8 @@ export function activate(context: vscode.ExtensionContext) {
             if (!workspaceFolders) { return; }
             const rootPath = workspaceFolders[0].uri.fsPath;
             if (isEnabled()) {
-                vscode.window.showInformationMessage(`[MicroGit] 既に有効です（対象ブランチ: ${getTargetBranch() ?? '未設定'}）`);
+                const branch = getCurrentBranch(rootPath) ?? getActiveMicroSpaceBranch() ?? '未設定';
+                vscode.window.showInformationMessage(`[MicroGit] 既に有効です（現在のマイクロ空間: ${branch}）`);
                 refreshUi(rootPath);
                 return;
             }
@@ -207,7 +210,7 @@ export function activate(context: vscode.ExtensionContext) {
             const rootPath = workspaceFolders[0].uri.fsPath;
             if (!syncBranchPolicy(rootPath)) {
                 refreshUi(rootPath);
-                vscode.window.showWarningMessage('MicroGit が無効、または対象ブランチ以外のためタイムトラベルできません。');
+                vscode.window.showWarningMessage('MicroGit が無効、または記録可能なブランチ上にいないためタイムトラベルできません。');
                 return;
             }
             const target = explicitTarget || await vscode.window.showInputBox({
@@ -226,7 +229,7 @@ export function activate(context: vscode.ExtensionContext) {
             const rootPath = workspaceFolders[0].uri.fsPath;
             syncBranchPolicy(rootPath);
             if (!isOnTargetBranch(rootPath)) {
-                vscode.window.showWarningMessage('対象ブランチ上でのみログをエクスポートできます。');
+                vscode.window.showWarningMessage('記録可能なブランチ上でのみログをエクスポートできます。');
                 return;
             }
             try {
@@ -282,7 +285,7 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
     if (!rootPath) {
         return {
             enabled: isEnabled(),
-            targetBranch: getTargetBranch(),
+            targetBranch: getActiveMicroSpaceBranch(),
             onTarget: false,
             active: false,
             currentTag: currentMicroBranchTag,
@@ -293,29 +296,29 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
     }
 
     const currentBranch = getCurrentBranch(rootPath);
-    const targetBranch = getTargetBranch();
-    const onTarget = Boolean(targetBranch && currentBranch && currentBranch === targetBranch);
-    const active = isEnabled() && onTarget;
+    const microSpace = getActiveMicroSpaceBranch() ?? currentBranch;
+    const onRecordable = isRecordableBranch(currentBranch);
+    const active = isEnabled() && onRecordable;
     const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
-    const hasShadow = fs.existsSync(shadowRepoPath);
+    const hasShadow = fs.existsSync(path.join(shadowRepoPath, '.git')) || fs.existsSync(shadowRepoPath);
     let commits: MicroGitUiSnapshot['commits'] = [];
     let currentHead: string | undefined;
 
-    if (hasShadow) {
+    if (active && hasShadow) {
         commits = getMicroGraphData(shadowRepoPath);
         currentHead = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD'])?.trim();
     }
 
     return {
         enabled: isEnabled(),
-        targetBranch,
+        targetBranch: microSpace,
         currentBranch,
-        onTarget,
+        onTarget: onRecordable,
         active,
         currentTag: currentMicroBranchTag,
         currentHead,
         commits,
-        hasShadow,
+        hasShadow: active && hasShadow,
         workspaceOpen: true,
     };
 }
@@ -338,74 +341,100 @@ function isEnabled(): boolean {
     return extensionContext?.workspaceState.get<boolean>(STATE_ENABLED, false) ?? false;
 }
 
-function getTargetBranch(): string | undefined {
+/** UI / 状態表示用: いま載せているマイクロ空間のメインブランチ名 */
+function getActiveMicroSpaceBranch(): string | undefined {
     return extensionContext?.workspaceState.get<string>(STATE_TARGET_BRANCH);
 }
 
-async function setEnabled(enabled: boolean, targetBranch?: string): Promise<void> {
+async function setActiveMicroSpaceBranch(branch: string | undefined): Promise<void> {
+    if (!extensionContext) { return; }
+    await extensionContext.workspaceState.update(STATE_TARGET_BRANCH, branch);
+}
+
+async function setEnabled(enabled: boolean): Promise<void> {
     if (!extensionContext) { return; }
     await extensionContext.workspaceState.update(STATE_ENABLED, enabled);
-    // 無効化しても対象ブランチは保持し、他ブランチへ切り替えたときの自動削除を継続する
-    if (targetBranch) {
-        await extensionContext.workspaceState.update(STATE_TARGET_BRANCH, targetBranch);
-    }
+}
+
+function isRecordableBranch(branch: string | undefined): boolean {
+    return Boolean(branch && branch !== 'HEAD');
+}
+
+function sanitizeBranchKey(branch: string): string {
+    return branch.replace(/[^a-zA-Z0-9._-]/g, '_');
 }
 
 /**
- * 対象ブランチ以外の「名前付きブランチ」ではシャドウを作業ツリーから退避する。
- * 対象ブランチへ戻ったら退避分を復元する（削除しないのでマイクロ履歴は消えない）。
- * detached HEAD（過去コミット参照）では触らず、大元コミットに含まれるシャドウを優先する。
- * 戻り値は「自動記録してよい状態」（有効かつ対象ブランチ上）のときのみ true。
+ * メインの各ブランチに専属のマイクロ空間を載せ替える。
+ * - ブランチ切替時: 前ブランチの成果物を退避し、新ブランチの空間を復元
+ * - detached HEAD: 記録せず、直前ブランチの空間を退避
+ * 戻り値は「自動記録してよい」（有効かつ名前付きブランチ上）ときのみ true。
  */
 function syncBranchPolicy(rootPath: string): boolean {
-    const targetBranch = getTargetBranch();
     const currentBranch = getCurrentBranch(rootPath);
-    const onTarget = Boolean(targetBranch && currentBranch && currentBranch === targetBranch);
-    const onOtherNamedBranch = Boolean(
-        targetBranch && currentBranch && currentBranch !== 'HEAD' && currentBranch !== targetBranch
-    );
-    const wasOnTarget = Boolean(targetBranch && lastKnownBranch === targetBranch);
 
-    if (onOtherNamedBranch && targetBranch) {
-        stashMicroGitArtifacts(rootPath, targetBranch);
-        ExtensionLogger.log(
-            `対象ブランチ以外のためシャドウを退避しました（対象: ${targetBranch}, 現在: ${currentBranch}）`,
-            'WARN'
-        );
+    if (!isEnabled()) {
         lastKnownBranch = currentBranch;
         updateStatusBar(rootPath);
         return false;
     }
 
-    if (onTarget && targetBranch && !wasOnTarget) {
-        restoreMicroGitArtifacts(rootPath, targetBranch);
-        const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
-        if (fs.existsSync(shadowRepoPath)) {
-            currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
-            ExtensionLogger.log(`対象ブランチ復帰: マイクロブランチ ${currentMicroBranchTag} を復元しました`);
+    if (!isRecordableBranch(currentBranch)) {
+        if (isRecordableBranch(lastKnownBranch)) {
+            stashMicroGitArtifacts(rootPath, lastKnownBranch!);
+            ExtensionLogger.log(`detached HEAD のためマイクロ空間を退避しました（${lastKnownBranch}）`, 'WARN');
+            void setActiveMicroSpaceBranch(undefined);
         }
+        lastKnownBranch = currentBranch;
+        updateStatusBar(rootPath);
+        return false;
+    }
+
+    const previous = lastKnownBranch;
+    if (isRecordableBranch(previous) && previous !== currentBranch) {
+        stashMicroGitArtifacts(rootPath, previous!);
+        restoreMicroGitArtifacts(rootPath, currentBranch!);
+        reloadMicroTagFromShadow(rootPath);
+        ExtensionLogger.log(`マイクロ空間を切替: ${previous} → ${currentBranch}`);
+    } else if (previous !== currentBranch) {
+        // 初回有効化・detached からの復帰など
+        restoreMicroGitArtifacts(rootPath, currentBranch!);
+        reloadMicroTagFromShadow(rootPath);
+        ExtensionLogger.log(`マイクロ空間を装着: ${currentBranch}`);
     }
 
     lastKnownBranch = currentBranch;
+    void setActiveMicroSpaceBranch(currentBranch);
     updateStatusBar(rootPath);
-    return Boolean(isEnabled() && onTarget);
+    return true;
+}
+
+function reloadMicroTagFromShadow(rootPath: string): void {
+    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    if (fs.existsSync(path.join(shadowRepoPath, '.git')) || fs.existsSync(shadowRepoPath)) {
+        try {
+            currentMicroBranchTag = detectCurrentTag(shadowRepoPath);
+        } catch {
+            currentMicroBranchTag = 'mb-1';
+        }
+    } else {
+        currentMicroBranchTag = 'mb-1';
+    }
 }
 
 function isOnTargetBranch(rootPath: string): boolean {
-    const targetBranch = getTargetBranch();
-    const currentBranch = getCurrentBranch(rootPath);
-    return Boolean(targetBranch && currentBranch && currentBranch === targetBranch);
+    return isEnabled() && isRecordableBranch(getCurrentBranch(rootPath));
 }
 
 function isActiveOnCurrentBranch(rootPath: string): boolean {
-    return isEnabled() && isOnTargetBranch(rootPath);
+    return isOnTargetBranch(rootPath);
 }
 
-function getArtifactStashRoot(targetBranch: string): string {
+function getArtifactStashRoot(mainBranch: string): string {
     if (!extensionContext) {
         throw new Error('Extension context is not initialized');
     }
-    const safeBranch = targetBranch.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const safeBranch = sanitizeBranchKey(mainBranch);
     const base = extensionContext.storageUri?.fsPath
         ?? path.join(extensionContext.globalStorageUri.fsPath, 'default-workspace');
     return path.join(base, 'branch-stash', safeBranch);
@@ -424,15 +453,15 @@ function moveDirectory(src: string, dest: string): void {
     }
 }
 
-/** 他ブランチへ混入しないよう、作業ツリーから拡張機能ストレージへ退避する */
-function stashMicroGitArtifacts(rootPath: string, targetBranch: string): void {
-    const stashRoot = getArtifactStashRoot(targetBranch);
+/** ブランチ専属空間を作業ツリーから拡張機能ストレージへ退避する */
+function stashMicroGitArtifacts(rootPath: string, mainBranch: string): void {
+    const stashRoot = getArtifactStashRoot(mainBranch);
     for (const dirName of ARTIFACT_DIRS) {
         const src = path.join(rootPath, dirName);
         if (!fs.existsSync(src)) { continue; }
         try {
             moveDirectory(src, path.join(stashRoot, dirName));
-            ExtensionLogger.log(`退避しました: ${dirName}`);
+            ExtensionLogger.log(`退避しました [${mainBranch}]: ${dirName}`);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             ExtensionLogger.log(`${dirName} の退避に失敗しました: ${message}`, 'ERROR');
@@ -440,15 +469,15 @@ function stashMicroGitArtifacts(rootPath: string, targetBranch: string): void {
     }
 }
 
-/** 対象ブランチ復帰時に、退避していたマイクロ履歴を作業ツリーへ戻す */
-function restoreMicroGitArtifacts(rootPath: string, targetBranch: string): void {
-    const stashRoot = getArtifactStashRoot(targetBranch);
+/** ブランチ専属のマイクロ空間を作業ツリーへ戻す */
+function restoreMicroGitArtifacts(rootPath: string, mainBranch: string): void {
+    const stashRoot = getArtifactStashRoot(mainBranch);
     for (const dirName of ARTIFACT_DIRS) {
         const src = path.join(stashRoot, dirName);
         if (!fs.existsSync(src)) { continue; }
         try {
             moveDirectory(src, path.join(rootPath, dirName));
-            ExtensionLogger.log(`復元しました: ${dirName}`);
+            ExtensionLogger.log(`復元しました [${mainBranch}]: ${dirName}`);
         } catch (err: unknown) {
             const message = err instanceof Error ? err.message : String(err);
             ExtensionLogger.log(`${dirName} の復元に失敗しました: ${message}`, 'ERROR');
@@ -459,23 +488,19 @@ function restoreMicroGitArtifacts(rootPath: string, targetBranch: string): void 
 function updateStatusBar(rootPath: string | undefined): void {
     if (!statusBarItem) { return; }
 
-    const target = getTargetBranch();
     const current = rootPath ? getCurrentBranch(rootPath) : undefined;
-    const onTarget = Boolean(target && current && current === target);
 
     if (!isEnabled()) {
-        statusBarItem.text = target
-            ? `$(circle-slash) MicroGit: OFF (${target})`
-            : '$(circle-slash) MicroGit: OFF';
+        statusBarItem.text = '$(circle-slash) MicroGit: OFF';
         statusBarItem.backgroundColor = undefined;
         return;
     }
 
-    if (onTarget) {
-        statusBarItem.text = `$(check) MicroGit: ${target}`;
+    if (isRecordableBranch(current)) {
+        statusBarItem.text = `$(check) MicroGit: ${current}`;
         statusBarItem.backgroundColor = undefined;
     } else {
-        statusBarItem.text = `$(warning) MicroGit: ${target ?? '?'} 以外`;
+        statusBarItem.text = '$(warning) MicroGit: detached';
         statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
     }
 }
