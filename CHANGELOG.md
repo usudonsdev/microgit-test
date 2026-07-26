@@ -2,6 +2,20 @@
 
 All notable changes to the "MicroGit" extension will be documented in this file.
 
+## [4.0.0] - 2026-07-26
+
+### Added
+- マイクロコミットに `Main-Head: <sha>` trailer（保存時点のメイン HEAD）
+- コントロールパネル／グラフの **メインコミット区間フィルタ**（例: `A → B` / `B → いまの作業`）
+- フィルタなし（すべて）でブランチ全体を表示（AI / PR レビュー向けの一本表示と両立）
+
+### Changed
+- グラフ log 取得を body 対応（NUL 区切り）にし、Main-Head を UI に渡す
+
+### Notes
+- 既存マイクロコミットに trailer が無いものは「未分類」区間に表示
+- メインの amend / rebase で sha が変わると区間ラベルがずれる場合あり（既知の制限）
+
 ## [3.7.0] - 2026-07-26
 
 ### Added
