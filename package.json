@@ -72,6 +72,14 @@
       {
         "command": "microgit.overlayStatus",
         "title": "MicroGit: Overlay Status"
+      },
+      {
+        "command": "microgit.publishMicroHistory",
+        "title": "MicroGit: Publish Micro History"
+      },
+      {
+        "command": "microgit.fetchMicroHistory",
+        "title": "MicroGit: Fetch Micro History"
       }
     ],
     "configuration": {

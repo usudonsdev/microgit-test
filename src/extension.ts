@@ -18,6 +18,14 @@ import {
     updateDagCurrent,
     writeLayerDir,
 } from './overlay';
+import {
+    ensureShadowRepoForBranch,
+    fetchMicrogitRefsFromOrigin,
+    importFromParentRefs,
+    publishToParentRefs,
+    pushMicrogitRefsToOrigin,
+    sanitizeBranchKey as sanitizeBranchKeyShared,
+} from './shadowStore';
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
 
 const STATE_ENABLED = 'microgit.enabled';
@@ -118,9 +126,26 @@ export function activate(context: vscode.ExtensionContext) {
 
             ExtensionLogger.log(`ファイル保存イベントを検知（スナップショット）: ${absPath}`);
 
+            const enqueuedBranch = getCurrentBranch(rootPath);
             pendingSaveJobs++;
             enqueueSave(async () => {
                 try {
+                    // 実行時点でブランチ／有効状態を再確認（投入後に切替されても誤記録しない）
+                    if (!syncBranchPolicy(rootPath)) {
+                        ExtensionLogger.log('保存ジョブ実行時: 記録不可のためスキップ', 'WARN');
+                        refreshUi(rootPath);
+                        return;
+                    }
+                    const runningBranch = getCurrentBranch(rootPath);
+                    if (enqueuedBranch && runningBranch && enqueuedBranch !== runningBranch) {
+                        ExtensionLogger.log(
+                            `保存ジョブ実行時: ブランチが変わったためスキップ（${enqueuedBranch} → ${runningBranch}）`,
+                            'WARN'
+                        );
+                        refreshUi(rootPath);
+                        return;
+                    }
+
                     const result = await runShadowCommit(rootPath, absPath, snapshot);
                     if (result === 'created' || result === 'rewound') {
                         await generateMicroGitFileLog(rootPath, absPath);
@@ -253,6 +278,54 @@ export function activate(context: vscode.ExtensionContext) {
     );
 
     context.subscriptions.push(
+        vscode.commands.registerCommand('microgit.publishMicroHistory', async () => {
+            if (!workspaceFolders) { return; }
+            const rootPath = workspaceFolders[0].uri.fsPath;
+            const branch = getCurrentBranch(rootPath);
+            if (!isEnabled() || !isRecordableBranch(branch)) {
+                vscode.window.showWarningMessage('有効かつ名前付きブランチ上でのみ publish できます。');
+                return;
+            }
+            try {
+                ensureShadowRepoForBranch(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+                publishToParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+                const pushed = pushMicrogitRefsToOrigin(rootPath, (m, l) => ExtensionLogger.log(m, l));
+                vscode.window.showInformationMessage(
+                    pushed
+                        ? `[MicroGit] 親 refs と origin の refs/microgit/* へ同期しました（${branch}）`
+                        : `[MicroGit] 親 refs へ publish しました（origin への push はスキップまたは失敗）`
+                );
+                refreshUi(rootPath);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`[MicroGit] publish に失敗: ${message}`);
+            }
+        })
+    );
+
+    context.subscriptions.push(
+        vscode.commands.registerCommand('microgit.fetchMicroHistory', async () => {
+            if (!workspaceFolders) { return; }
+            const rootPath = workspaceFolders[0].uri.fsPath;
+            const branch = getCurrentBranch(rootPath);
+            if (!isEnabled() || !isRecordableBranch(branch)) {
+                vscode.window.showWarningMessage('有効かつ名前付きブランチ上でのみ fetch できます。');
+                return;
+            }
+            try {
+                fetchMicrogitRefsFromOrigin(rootPath, (m, l) => ExtensionLogger.log(m, l));
+                importFromParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+                reloadMicroTagFromShadow(rootPath);
+                vscode.window.showInformationMessage(`[MicroGit] refs/microgit を取り込みました（${branch}）`);
+                refreshUi(rootPath);
+            } catch (err: unknown) {
+                const message = err instanceof Error ? err.message : String(err);
+                vscode.window.showErrorMessage(`[MicroGit] fetch に失敗: ${message}`);
+            }
+        })
+    );
+
+    context.subscriptions.push(
         vscode.commands.registerCommand('microgit.overlayStatus', async () => {
             const text =
                 `${describeOverlayEngine()}\n` +
@@ -361,7 +434,7 @@ function isRecordableBranch(branch: string | undefined): boolean {
 }
 
 function sanitizeBranchKey(branch: string): string {
-    return branch.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return sanitizeBranchKeyShared(branch);
 }
 
 /**
@@ -394,19 +467,35 @@ function syncBranchPolicy(rootPath: string): boolean {
     if (isRecordableBranch(previous) && previous !== currentBranch) {
         stashMicroGitArtifacts(rootPath, previous!);
         restoreMicroGitArtifacts(rootPath, currentBranch!);
-        reloadMicroTagFromShadow(rootPath);
+        prepareShadowForBranch(rootPath, currentBranch!, true);
         ExtensionLogger.log(`マイクロ空間を切替: ${previous} → ${currentBranch}`);
     } else if (previous !== currentBranch) {
-        // 初回有効化・detached からの復帰など
         restoreMicroGitArtifacts(rootPath, currentBranch!);
-        reloadMicroTagFromShadow(rootPath);
+        prepareShadowForBranch(rootPath, currentBranch!, true);
         ExtensionLogger.log(`マイクロ空間を装着: ${currentBranch}`);
+    } else {
+        // 同じブランチ: gitfile / bare の存在だけ保証（親 refs の再 import はしない）
+        prepareShadowForBranch(rootPath, currentBranch!, false);
     }
 
     lastKnownBranch = currentBranch;
     void setActiveMicroSpaceBranch(currentBranch);
     updateStatusBar(rootPath);
     return true;
+}
+
+/** bare + gitfile を用意。importFromParent=true のとき親 refs/microgit から取り込む */
+function prepareShadowForBranch(rootPath: string, mainBranch: string, importFromParent: boolean): void {
+    try {
+        ensureShadowRepoForBranch(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
+        if (importFromParent) {
+            importFromParentRefs(rootPath, mainBranch, (m, l) => ExtensionLogger.log(m, l));
+        }
+        reloadMicroTagFromShadow(rootPath);
+    } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        ExtensionLogger.log(`シャドウ準備に失敗: ${message}`, 'ERROR');
+    }
 }
 
 function reloadMicroTagFromShadow(rootPath: string): void {
@@ -839,16 +928,13 @@ function findPastCommitForSave(
     return undefined;
 }
 
-/** シャドウ領域が git リポジトリとして使える状態にする（フォルダだけ残っている場合も再初期化） */
-function ensureShadowRepo(shadowRepoPath: string): void {
-    if (!fs.existsSync(shadowRepoPath)) {
-        fs.mkdirSync(shadowRepoPath, { recursive: true });
+/** 現在のメインブランチ向けに bare+gitfile シャドウを用意する */
+function ensureShadowRepo(mainRepoPath: string): void {
+    const branch = getCurrentBranch(mainRepoPath);
+    if (!isRecordableBranch(branch)) {
+        throw new Error('記録可能なブランチ上でのみシャドウを初期化できます');
     }
-    const gitDir = path.join(shadowRepoPath, '.git');
-    if (!fs.existsSync(gitDir)) {
-        runGit(shadowRepoPath, ['init', '-b', 'micro-history']);
-        ExtensionLogger.log(`シャドウリポジトリを初期化しました: ${shadowRepoPath}`);
-    }
+    ensureShadowRepoForBranch(mainRepoPath, branch!, (m, l) => ExtensionLogger.log(m, l));
 }
 
 async function runShadowCommit(
@@ -871,7 +957,7 @@ async function runShadowCommit(
     }
 
     try {
-        ensureShadowRepo(shadowRepoPath);
+        ensureShadowRepo(mainRepoPath);
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         ExtensionLogger.log(`シャドウ初期化に失敗しました: ${message}`, 'ERROR');
@@ -942,6 +1028,12 @@ async function runShadowCommit(
                 `[MicroGit] 同一変更のため HEAD のみ復帰 ${pastMatch.commit.substring(0, 7)}`,
                 3000
             );
+            const branchRewind = getCurrentBranch(mainRepoPath);
+            if (isRecordableBranch(branchRewind)) {
+                try {
+                    publishToParentRefs(mainRepoPath, branchRewind!, (m, l) => ExtensionLogger.log(m, l));
+                } catch { /* publish best-effort */ }
+            }
             return 'rewound';
         }
         if (pastMatch && currentHead === pastMatch.commit) {
@@ -1013,6 +1105,16 @@ async function runShadowCommit(
             } catch (overlayErr: unknown) {
                 const msg = overlayErr instanceof Error ? overlayErr.message : String(overlayErr);
                 ExtensionLogger.log(`[Overlay] レイヤ書き出しに失敗: ${msg}`, 'WARN');
+            }
+        }
+
+        const branch = getCurrentBranch(mainRepoPath);
+        if (isRecordableBranch(branch)) {
+            try {
+                publishToParentRefs(mainRepoPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+            } catch (pubErr: unknown) {
+                const msg = pubErr instanceof Error ? pubErr.message : String(pubErr);
+                ExtensionLogger.log(`親 refs への publish に失敗: ${msg}`, 'WARN');
             }
         }
 
