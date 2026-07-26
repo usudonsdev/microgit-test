@@ -3,7 +3,7 @@ title: "阪大の OverlayGit 研究を読んで、保存ごとのマイクロ履
 emoji: "🔀"
 type: "tech"
 topics: ["git", "vscode", "typescript", "overlayfs", "cursor"]
-published: false
+published: true
 ---
 
 ## はじめに
