@@ -8,7 +8,7 @@ published: true
 
 ## はじめに
 
-Git のチェックアウトを OverlayFS で速くする、という話を論文で知りました。大阪大学の三原・柗本・楠本らの **OverlayGit**（情報処理学会論文誌, 2025）です。
+Git のチェックアウトを OverlayFS で速くする、という話を論文で知りました。大阪大学の **OverlayGit**（情報処理学会論文誌, 2025）です。
 
 読んでいて刺さったのは実装の細部より、**「blob 展開が高いなら、空間を使って先に展開しておけば切替を軽くできる」** という整理でした。MSR（リポジトリマイニング）向けの話ですが、個人開発の「保存のたびに履歴を残したい」にも使えそうだと思い、VS Code / Cursor 拡張の **MicroGit**（本稿時点 **v4.0.0**）を作りました。
 
@@ -24,7 +24,7 @@ Git のチェックアウトを OverlayFS で速くする、という話を論�
 - Cursor / Open VSX: [microgit](https://open-vsx.org/extension/usudonsdev/microgit)
 - VS Code Marketplace: [microgit](https://marketplace.visualstudio.com/items?itemName=usudonsdev.microgit)
 - リポジトリ: [GitHub — microgit](https://github.com/usudonsdev/microgit)
-- 参考にした論文: 三原・柗本・楠本, [OverlayGit：OverlayFSを用いた高速なGitファイルシステム](https://sdl.ist.osaka-u.ac.jp/pman/pman3.cgi?D=882), 情報処理学会論文誌, 2025
+- 参考にした論文: 三原公平, 柗本真佑, 楠本真二, [OverlayGit：OverlayFSを用いた高速なGitファイルシステム](https://sdl.ist.osaka-u.ac.jp/pman/pman3.cgi?D=882), 情報処理学会論文誌, 2025
 
 ---
 
