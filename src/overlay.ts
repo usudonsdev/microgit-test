@@ -250,7 +250,8 @@ export function ensureExpandedView(
     let method: CheckoutMethod = 'full';
 
     if (parentIdx >= 0) {
-        copyTree(viewDir(paths, layerPath[parentIdx]), dest);
+        // view 構築は実体コピー（ハードリンクは小ファイル多数で逆に遅いことがある）
+        copyTreeBytes(viewDir(paths, layerPath[parentIdx]), dest);
         for (let i = parentIdx + 1; i < layerPath.length; i++) {
             applyLayerOntoMerge(layerDir(paths, layerPath[i]), dest);
             appliedLayers++;
@@ -287,7 +288,7 @@ export function expandViewAfterExport(
     if (parentHash && isViewReady(paths, parentHash)) {
         clearDirContents(dest);
         fs.mkdirSync(dest, { recursive: true });
-        copyTree(viewDir(paths, parentHash), dest);
+        copyTreeBytes(viewDir(paths, parentHash), dest);
         applyLayerOntoMerge(layerDir(paths, commitHash), dest);
         markViewReady(paths, commitHash);
         return 'incremental';
@@ -304,9 +305,47 @@ export function expandViewAfterExport(
     return 'full';
 }
 
+function writeLayerHasFiles(paths: OverlayPaths, writeBranchTag: string): boolean {
+    const writeSrc = writeLayerDir(paths, writeBranchTag);
+    return listFilesRecursive(writeSrc).length > 0;
+}
+
+/** merge を消して（symlink/junction/実体いずれも）作り直せるようにする */
+export function resetMergeDir(paths: OverlayPaths): void {
+    if (!fs.existsSync(paths.merge)) {
+        return;
+    }
+    try {
+        fs.rmSync(paths.merge, { recursive: true, force: true });
+    } catch {
+        clearDirContents(paths.merge);
+        try { fs.rmdirSync(paths.merge); } catch { /* keep */ }
+    }
+}
+
+/**
+ * write レイヤが空なら merge を view へのディレクトリジャンクション/symlink にする（O(1) 載せ替え）。
+ * write があるときだけ実ディレクトリへ展開してレイヤを載せる。
+ */
+export function pointMergeAtView(paths: OverlayPaths, viewPath: string): 'junction' | 'symlink' | 'link-tree' {
+    resetMergeDir(paths);
+    try {
+        if (process.platform === 'win32') {
+            fs.symlinkSync(viewPath, paths.merge, 'junction');
+            return 'junction';
+        }
+        fs.symlinkSync(viewPath, paths.merge, 'dir');
+        return 'symlink';
+    } catch {
+        fs.mkdirSync(paths.merge, { recursive: true });
+        linkOrCopyTree(viewPath, paths.merge);
+        return 'link-tree';
+    }
+}
+
 /**
  * Node.js ユーザー空間 Overlay（OverlayFS 意味論）:
- * 展開済みビューを merge に載せ、write レイヤを最上層に適用する。
+ * write が空なら merge=view ジャンクション、あるときだけ実体化して上書き。
  */
 export function materializeMerge(
     paths: OverlayPaths,
@@ -314,13 +353,16 @@ export function materializeMerge(
     writeBranchTag: string,
 ): { fileCount: number; method: CheckoutMethod; appliedLayers: number; viewHash?: string } {
     const ensured = ensureExpandedView(paths, layerPath);
-
-    clearDirContents(paths.merge);
-    fs.mkdirSync(paths.merge, { recursive: true });
-    copyTree(ensured.viewPath, paths.merge);
-
     const writeSrc = writeLayerDir(paths, writeBranchTag);
-    applyLayerOntoMerge(writeSrc, paths.merge);
+
+    if (!writeLayerHasFiles(paths, writeBranchTag)) {
+        pointMergeAtView(paths, ensured.viewPath);
+    } else {
+        resetMergeDir(paths);
+        fs.mkdirSync(paths.merge, { recursive: true });
+        linkOrCopyTree(ensured.viewPath, paths.merge);
+        applyLayerOntoMerge(writeSrc, paths.merge);
+    }
 
     return {
         fileCount: listFilesRecursive(paths.merge).length,
@@ -339,25 +381,16 @@ export function checkoutLayers(
     const prev = readCheckoutState(paths);
     const tip = layerPath.length ? layerPath[layerPath.length - 1] : undefined;
 
-    // 同一 tip・同一 write なら write レイヤだけ載せ直す（ビュー再構築ゼロ）
+    // 同一 tip・同一 write・write 空 → 何もしない（ジャンクション載せ替え済み）
     if (
         tip &&
         prev?.viewHash === tip &&
         prev.writeBranchTag === writeBranchTag &&
         isViewReady(paths, tip) &&
-        fs.existsSync(paths.merge)
+        fs.existsSync(paths.merge) &&
+        !writeLayerHasFiles(paths, writeBranchTag)
     ) {
-        clearDirContents(paths.merge);
-        copyTree(viewDir(paths, tip), paths.merge);
-        applyLayerOntoMerge(writeLayerDir(paths, writeBranchTag), paths.merge);
         const fileCount = listFilesRecursive(paths.merge).length;
-        writeCheckoutState(paths, {
-            backend: 'nodejs',
-            layerPath,
-            writeBranchTag,
-            viewHash: tip,
-            at: new Date().toISOString(),
-        });
         return {
             backend: 'nodejs',
             method: 'cached-view',
@@ -378,20 +411,57 @@ export function checkoutLayers(
     });
     return {
         backend: 'nodejs',
-        method: materialized.method,
+        method: tip && prev?.viewHash === tip ? 'cached-view' : materialized.method,
         layerCount: layerPath.length,
         fileCount: materialized.fileCount,
-        appliedLayers: materialized.appliedLayers,
+        appliedLayers: tip && prev?.viewHash === tip ? 0 : materialized.appliedLayers,
         viewHash: materialized.viewHash,
     };
 }
 
 export function describeOverlayEngine(): string {
-    return `backend=nodejs space-for-time=views platform=${process.platform}`;
+    return `backend=nodejs space-for-time=views merge=junction-or-link platform=${process.platform}`;
 }
 
-/** ディレクトリツリーをコピー（ビューマーカーは除外） */
-export function copyTree(srcDir: string, destDir: string): void {
+/**
+ * 同一ボリュームならハードリンク、ダメならコピー。
+ * view→merge / 親view→子view の「載せ替え」を O(inode) に近づける。
+ */
+export function linkOrCopyFile(src: string, dest: string): void {
+    fs.mkdirSync(path.dirname(dest), { recursive: true });
+    if (fs.existsSync(dest)) {
+        fs.unlinkSync(dest);
+    }
+    try {
+        fs.linkSync(src, dest);
+    } catch {
+        fs.copyFileSync(src, dest);
+    }
+}
+
+/** ディレクトリツリーをハードリンク優先で載せ替え（ビューマーカーは除外） */
+export function linkOrCopyTree(srcDir: string, destDir: string): void {
+    if (!fs.existsSync(srcDir)) { return; }
+    fs.mkdirSync(destDir, { recursive: true });
+
+    const walk = (dir: string, relPrefix: string) => {
+        for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+            if (isSkippedName(entry.name)) { continue; }
+            const rel = relPrefix ? `${relPrefix}/${entry.name}` : entry.name;
+            const abs = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                fs.mkdirSync(path.join(destDir, ...rel.split('/')), { recursive: true });
+                walk(abs, rel);
+            } else if (entry.isFile()) {
+                linkOrCopyFile(abs, path.join(destDir, ...rel.split('/')));
+            }
+        }
+    };
+    walk(srcDir, '');
+}
+
+/** ディレクトリツリーをバイトコピー（ビュー展開用） */
+export function copyTreeBytes(srcDir: string, destDir: string): void {
     if (!fs.existsSync(srcDir)) { return; }
     fs.mkdirSync(destDir, { recursive: true });
 
@@ -413,7 +483,15 @@ export function copyTree(srcDir: string, destDir: string): void {
     walk(srcDir, '');
 }
 
-/** レイヤを merge/view に適用（通常ファイルコピー + whiteout 削除） */
+/** 後方互換エイリアス */
+export function copyTree(srcDir: string, destDir: string): void {
+    copyTreeBytes(srcDir, destDir);
+}
+
+/**
+ * レイヤを merge/view に適用（通常ファイル + whiteout）。
+ * ハードリンク先を壊さないよう、上書き前に必ず unlink する。
+ */
 export function applyLayerOntoMerge(srcDir: string, mergeDir: string): void {
     if (!fs.existsSync(srcDir)) { return; }
 
@@ -440,6 +518,10 @@ export function applyLayerOntoMerge(srcDir: string, mergeDir: string): void {
 
             const to = path.join(mergeDir, ...rel.split('/'));
             fs.mkdirSync(path.dirname(to), { recursive: true });
+            if (fs.existsSync(to)) {
+                fs.unlinkSync(to);
+            }
+            // レイヤ実体は view と共有しない（後でレイヤを消しても merge/view が残るようコピー）
             fs.copyFileSync(abs, to);
         }
     };
