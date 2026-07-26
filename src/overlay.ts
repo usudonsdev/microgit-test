@@ -575,10 +575,34 @@ function filesContentEqual(a: string, b: string): boolean {
         const sb = fs.statSync(b);
         if (!sa.isFile() || !sb.isFile() || sa.size !== sb.size) { return false; }
         if (sa.size === 0) { return true; }
+        // 同一 inode（ハードリンク）なら中身比較不要
+        if (sa.dev === sb.dev && sa.ino === sb.ino) { return true; }
         return fs.readFileSync(a).equals(fs.readFileSync(b));
     } catch {
         return false;
     }
+}
+
+type WorkspaceSyncCache = Record<string, { size: number; mtimeMs: number }>;
+
+function syncCachePath(paths: OverlayPaths): string {
+    return path.join(paths.meta, 'workspace-sync.json');
+}
+
+function readSyncCache(paths: OverlayPaths): WorkspaceSyncCache {
+    try {
+        const p = syncCachePath(paths);
+        if (!fs.existsSync(p)) { return {}; }
+        const parsed = JSON.parse(fs.readFileSync(p, 'utf8')) as WorkspaceSyncCache;
+        return parsed && typeof parsed === 'object' ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function writeSyncCache(paths: OverlayPaths, cache: WorkspaceSyncCache): void {
+    fs.mkdirSync(paths.meta, { recursive: true });
+    fs.writeFileSync(syncCachePath(paths), JSON.stringify(cache), 'utf8');
 }
 
 /** commit の変更ファイルを layers/<hash>/ にフル実体（または whiteout）で書き出す */
@@ -720,7 +744,7 @@ export function collectShadowTrackedFiles(
 
 /**
  * merge/ の内容をワークスペースへ同期する。
- * 内容同一ファイルはスキップして I/O とエディタ revert を抑える。
+ * size+mtime キャッシュと inode 一致でフルリード比較を避ける。
  */
 export function syncMergeToWorkspace(
     workspaceRoot: string,
@@ -735,6 +759,8 @@ export function syncMergeToWorkspace(
     for (const f of mergeFiles) { managed.add(f); }
     for (const f of extraManagedFiles ?? []) { managed.add(f); }
 
+    const cache = readSyncCache(paths);
+    const nextCache: WorkspaceSyncCache = {};
     const written: string[] = [];
     const deleted: string[] = [];
     let skipped = 0;
@@ -744,13 +770,42 @@ export function syncMergeToWorkspace(
         const from = path.join(paths.merge, ...rel.split('/'));
         const to = path.join(workspaceRoot, ...rel.split('/'));
         if (isMicroGitArtifactPath(to, workspaceRoot)) { continue; }
+
+        let srcStat: fs.Stats;
+        try {
+            srcStat = fs.statSync(from);
+            if (!srcStat.isFile()) { continue; }
+        } catch {
+            continue;
+        }
+
+        const cached = cache[rel];
+        if (
+            cached &&
+            cached.size === srcStat.size &&
+            cached.mtimeMs === srcStat.mtimeMs &&
+            fs.existsSync(to)
+        ) {
+            try {
+                const dstStat = fs.statSync(to);
+                if (dstStat.isFile() && dstStat.size === srcStat.size) {
+                    nextCache[rel] = cached;
+                    skipped++;
+                    continue;
+                }
+            } catch { /* fall through */ }
+        }
+
         if (fs.existsSync(to) && filesContentEqual(from, to)) {
+            nextCache[rel] = { size: srcStat.size, mtimeMs: srcStat.mtimeMs };
             skipped++;
             continue;
         }
+
         fs.mkdirSync(path.dirname(to), { recursive: true });
         fs.copyFileSync(from, to);
         written.push(rel);
+        nextCache[rel] = { size: srcStat.size, mtimeMs: srcStat.mtimeMs };
     }
 
     for (const rel of managed) {
@@ -766,6 +821,7 @@ export function syncMergeToWorkspace(
 
     dag.managedFiles = Array.from(managed).sort();
     writeDag(paths, dag);
+    writeSyncCache(paths, nextCache);
     return { written, deleted, skipped };
 }
 
