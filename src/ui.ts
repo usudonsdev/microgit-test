@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { MainIntervalOption } from './mainHead';
 
 export interface GraphCommit {
     hash: string;
@@ -6,6 +7,8 @@ export interface GraphCommit {
     tags: string[];
     subject: string;
     timestamp: string;
+    /** 作成時のメインリポジトリ HEAD（Main-Head trailer） */
+    mainHead?: string;
 }
 
 export interface MicroGitUiSnapshot {
@@ -17,6 +20,8 @@ export interface MicroGitUiSnapshot {
     currentTag: string;
     currentHead?: string;
     commits: GraphCommit[];
+    /** メインコミット区間フィルタ用オプション */
+    mainIntervals?: MainIntervalOption[];
     hasShadow: boolean;
     workspaceOpen: boolean;
 }
@@ -157,6 +162,7 @@ function emptySnapshot(): MicroGitUiSnapshot {
         active: false,
         currentTag: 'mb-1',
         commits: [],
+        mainIntervals: [{ id: 'all', label: 'すべて（ブランチ全体）', mainHead: null }],
         hasShadow: false,
         workspaceOpen: false,
     };

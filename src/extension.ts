@@ -26,6 +26,11 @@ import {
     pushMicrogitRefsToOrigin,
     sanitizeBranchKey as sanitizeBranchKeyShared,
 } from './shadowStore';
+import {
+    buildMainIntervalOptions,
+    buildMicroCommitMessage,
+    parseMainHeadFromMessage,
+} from './mainHead';
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
 
 const STATE_ENABLED = 'microgit.enabled';
@@ -386,6 +391,12 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
         currentHead = tryRunGit(shadowRepoPath, ['rev-parse', 'HEAD'])?.trim();
     }
 
+    const mainCommits = getMainCommitLog(rootPath, 40);
+    const mainIntervals = buildMainIntervalOptions(
+        mainCommits,
+        commits.map((c) => c.mainHead),
+    );
+
     return {
         enabled: isEnabled(),
         targetBranch: microSpace,
@@ -395,6 +406,7 @@ function buildUiSnapshot(rootPath: string | undefined): MicroGitUiSnapshot {
         currentTag: currentMicroBranchTag,
         currentHead,
         commits,
+        mainIntervals,
         hasShadow: active && hasShadow,
         workspaceOpen: true,
     };
@@ -1067,11 +1079,13 @@ async function runShadowCommit(
             return 'unchanged';
         }
 
-        const timestamp = new Date().toISOString();
         const fromAi = consumeAiPending(mainRepoPath, relativeFilePath);
-        const commitMessage = fromAi
-            ? `micro: [AI] saved ${relativeFilePath} at ${timestamp}`
-            : `micro: saved ${relativeFilePath} at ${timestamp}`;
+        const mainHeadAtSave = tryRunGit(mainRepoPath, ['rev-parse', 'HEAD'])?.trim();
+        const commitMessage = buildMicroCommitMessage(
+            relativeFilePath,
+            fromAi,
+            mainHeadAtSave && isSafeGitRef(mainHeadAtSave) ? mainHeadAtSave : undefined,
+        );
         const commitTreeArgs = ['commit-tree', currentTreeHash];
         if (currentHead) {
             if (!isSafeGitRef(currentHead)) {
@@ -1212,37 +1226,68 @@ class ExtensionLogger {
     }
 }
 
+function getMainCommitLog(mainRepoPath: string, limit: number): Array<{ hash: string; subject: string }> {
+    try {
+        const stdout = tryRunGit(mainRepoPath, [
+            'log',
+            '-n',
+            String(limit),
+            '--pretty=format:%H%x01%s',
+        ]);
+        if (!stdout?.trim()) {
+            return [];
+        }
+        return stdout.trim().split('\n').filter(Boolean).map((line) => {
+            const [hash = '', subject = ''] = line.split('\x01');
+            return { hash, subject };
+        });
+    } catch {
+        return [];
+    }
+}
+
 function getMicroGraphData(shadowRepoPath: string): Array<{
     hash: string;
     parents: string[];
     tags: string[];
     subject: string;
     timestamp: string;
+    mainHead?: string;
 }> {
     try {
         const hasCommits = tryRunGit(shadowRepoPath, ['rev-parse', '--verify', 'HEAD']);
         if (!hasCommits) { return []; }
 
-        const stdout = runGit(shadowRepoPath, ['log', '--all', '--topo-order', '--pretty=format:%H|%P|%d|%s|%ct']);
-        const lines = stdout.trim().split('\n').filter(Boolean);
-        return lines.map(line => {
-            const parts = line.split('|');
+        // body に改行がありうるのでレコード区切りは NUL、フィールドは SOH
+        const stdout = runGit(shadowRepoPath, [
+            'log',
+            '--all',
+            '--topo-order',
+            '-z',
+            '--pretty=format:%H%x01%P%x01%d%x01%s%x01%b%x01%ct',
+        ]);
+        const records = stdout.split('\0').filter(Boolean);
+        return records.map((record) => {
+            const parts = record.split('\x01');
             const hash = parts[0] || '';
             const parents = parts[1] ? parts[1].split(' ').filter(Boolean) : [];
             const decorations = parts[2] || '';
-            const timestampStr = parts[parts.length - 1] || '0';
-            const subject = parts.slice(3, parts.length - 1).join('|') || parts[3] || '';
+            const subject = parts[3] || '';
+            const body = parts[4] || '';
+            const timestampStr = parts[5] || '0';
             let tags: string[] = [];
             const tagMatch = decorations.match(/tag:\s*([a-zA-Z0-9_-]+)/g);
             if (tagMatch) {
                 tags = tagMatch.map((t: string) => t.replace('tag: ', ''));
             }
+            const mainHead = parseMainHeadFromMessage(subject, body);
             return {
                 hash,
                 parents,
                 tags,
                 subject,
-                timestamp: new Date(parseInt(timestampStr, 10) * 1000).toLocaleString()
+                timestamp: new Date(parseInt(timestampStr, 10) * 1000).toLocaleString(),
+                mainHead,
             };
         });
     } catch {
