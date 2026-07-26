@@ -1,9 +1,9 @@
 {
   "name": "microgit",
   "displayName": "MicroGit",
-  "version": "3.6.1",
+  "version": "3.7.0",
   "publisher": "usudonsdev",
-  "description": "個人開発向け。保存と同時にマイクロ履歴を記録し、メインリポジトリのコミット経由で共有できるタイムトラベルツール",
+  "description": "個人開発向け。ブランチ専属のマイクロ履歴・Overlay checkout・refs/microgit による他デバイス共有",
   "license": "SEE LICENSE IN LICENCE.md",
   "repository": {
     "type": "git",
@@ -101,7 +101,8 @@
     "lint": "eslint src",
     "test": "node ./out/test/runTest.js",
     "package": "vsce package",
-    "publish": "vsce publish"
+    "publish": "vsce publish",
+    "bench": "npm run compile && node scripts/speed-bench.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",

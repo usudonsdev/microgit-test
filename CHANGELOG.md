@@ -2,6 +2,22 @@
 
 All notable changes to the "MicroGit" extension will be documented in this file.
 
+## [3.7.0] - 2026-07-26
+
+### Added
+- メインブランチごとに専属のマイクロ空間（切替時に退避／復元）
+- 共有形式 α: `.git/microgit/repos/<branch>.git`（bare）+ gitfile。親の `refs/microgit/<branch>/*` へ publish
+- コマンド `MicroGit: Publish Micro History` / `MicroGit: Fetch Micro History`
+- 設計方針 `docs/design-policy.md`（A+Overlay+α、Cherry-pick / PR レビューは将来）
+- 速度ベンチ `npm run bench`（`scripts/speed-bench.mjs`）
+
+### Changed
+- 単一「対象ブランチ」ロックを廃止。有効化はワークスペース単位、記録は現在ブランチの空間へ
+- 作業ツリーへのネスト `.git` をやめ、通常の `git add` で gitlink 化しない
+
+### Fixed
+- 保存ジョブ実行時にブランチ／有効状態を再確認し、切替後の誤記録を防止
+
 ## [3.6.1] - 2026-07-26
 
 ### Fixed
