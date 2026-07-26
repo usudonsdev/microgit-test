@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { MainIntervalOption } from './mainHead';
+import { filterCommitsByMainInterval, type MainIntervalOption } from './mainHead';
 
 export interface GraphCommit {
     hash: string;
@@ -35,6 +35,8 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
     private view?: vscode.WebviewView;
     private graphPanel?: vscode.WebviewPanel;
     private latest: MicroGitUiSnapshot = emptySnapshot();
+    /** サイドバー／グラフ共通のメインコミット区間フィルタ */
+    private selectedIntervalId = 'all';
 
     constructor(private readonly extensionUri: vscode.Uri) {}
 
@@ -102,24 +104,63 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
         this.postToGraph();
     }
 
+    private resolveInterval(): MainIntervalOption {
+        const intervals = this.latest.mainIntervals?.length
+            ? this.latest.mainIntervals
+            : emptySnapshot().mainIntervals!;
+        const found = intervals.find((i) => i.id === this.selectedIntervalId);
+        if (found) {
+            return found;
+        }
+        this.selectedIntervalId = 'all';
+        return intervals.find((i) => i.id === 'all') ?? { id: 'all', label: 'すべて（ブランチ全体）', mainHead: null };
+    }
+
+    private viewPayload(): MicroGitUiSnapshot & { selectedIntervalId: string; filteredCount: number; totalCount: number } {
+        const interval = this.resolveInterval();
+        const filtered = filterCommitsByMainInterval(this.latest.commits, interval.mainHead);
+        return {
+            ...this.latest,
+            commits: filtered,
+            selectedIntervalId: interval.id,
+            filteredCount: filtered.length,
+            totalCount: this.latest.commits.length,
+        };
+    }
+
     private postToSidebar(): void {
-        this.view?.webview.postMessage({ type: 'update', payload: this.latest });
+        this.view?.webview.postMessage({ type: 'update', payload: this.viewPayload() });
     }
 
     private postToGraph(): void {
+        const payload = this.viewPayload();
         this.graphPanel?.webview.postMessage({
             type: 'update',
             payload: {
-                commits: this.latest.commits,
-                currentHead: this.latest.currentHead,
-                currentTag: this.latest.currentTag,
-                active: this.latest.active,
-                hasShadow: this.latest.hasShadow,
+                commits: payload.commits,
+                currentHead: payload.currentHead,
+                currentTag: payload.currentTag,
+                active: payload.active,
+                hasShadow: payload.hasShadow,
+                mainIntervals: payload.mainIntervals,
+                selectedIntervalId: payload.selectedIntervalId,
+                filteredCount: payload.filteredCount,
+                totalCount: payload.totalCount,
             },
         });
     }
 
-    private async handleSidebarMessage(message: { command?: string; hash?: string }): Promise<void> {
+    private setIntervalFilter(intervalId: string): void {
+        this.selectedIntervalId = intervalId || 'all';
+        this.postToSidebar();
+        this.postToGraph();
+    }
+
+    private async handleSidebarMessage(message: {
+        command?: string;
+        hash?: string;
+        intervalId?: string;
+    }): Promise<void> {
         switch (message.command) {
             case 'toggle':
                 await vscode.commands.executeCommand('microgit.toggle');
@@ -138,15 +179,28 @@ export class MicroGitUi implements vscode.WebviewViewProvider {
             case 'exportLogs':
                 await vscode.commands.executeCommand('microgit.exportLogs');
                 return;
+            case 'setInterval':
+                if (typeof message.intervalId === 'string') {
+                    this.setIntervalFilter(message.intervalId);
+                }
+                return;
             case 'ready':
                 this.postToSidebar();
                 return;
         }
     }
 
-    private async handleGraphMessage(message: { command?: string; hash?: string }): Promise<void> {
+    private async handleGraphMessage(message: {
+        command?: string;
+        hash?: string;
+        intervalId?: string;
+    }): Promise<void> {
         if (message.command === 'jumpToCommit' && typeof message.hash === 'string') {
             await vscode.commands.executeCommand('microgit.jumpToCommit', message.hash);
+            return;
+        }
+        if (message.command === 'setInterval' && typeof message.intervalId === 'string') {
+            this.setIntervalFilter(message.intervalId);
             return;
         }
         if (message.command === 'ready') {
@@ -247,6 +301,24 @@ function getSidebarHtml(): string {
   .item-label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
   .item-time { color: var(--muted); font-size: 11px; white-space: nowrap; flex-shrink: 0; }
   .empty { color: var(--muted); font-size: 12px; }
+  .filter-row { margin-bottom: 8px; }
+  .filter-row label {
+    display: block;
+    color: var(--muted);
+    font-size: 11px;
+    margin-bottom: 4px;
+  }
+  select#interval-filter {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--fg);
+    font: inherit;
+  }
+  .filter-meta { color: var(--muted); font-size: 11px; margin: 0 0 8px; }
   .hover-tip {
     position: fixed;
     z-index: 1000;
@@ -284,6 +356,11 @@ function getSidebarHtml(): string {
   </div>
 
   <h1>最近のマイクロ履歴</h1>
+  <div class="filter-row">
+    <label for="interval-filter">メインコミット区間</label>
+    <select id="interval-filter"></select>
+  </div>
+  <p class="filter-meta" id="filter-meta"></p>
   <div class="list" id="commit-list"><div class="empty">履歴はまだありません</div></div>
   <div id="sidebar-tip" class="hover-tip" hidden></div>
 
@@ -299,14 +376,34 @@ function getSidebarHtml(): string {
     const btnJump = document.getElementById('btn-jump');
     const btnExport = document.getElementById('btn-export');
     const sidebarTip = document.getElementById('sidebar-tip');
+    const intervalFilter = document.getElementById('interval-filter');
+    const filterMeta = document.getElementById('filter-meta');
 
     document.getElementById('btn-toggle').onclick = () => vscode.postMessage({ command: 'toggle' });
     btnGraph.onclick = () => vscode.postMessage({ command: 'showGraph' });
     btnJump.onclick = () => vscode.postMessage({ command: 'jumpPrompt' });
     btnExport.onclick = () => vscode.postMessage({ command: 'exportLogs' });
+    intervalFilter.onchange = () => {
+      vscode.postMessage({ command: 'setInterval', intervalId: intervalFilter.value });
+    };
 
     function short(hash) {
       return hash ? hash.substring(0, 7) : '-';
+    }
+
+    function fillIntervalOptions(intervals, selectedId) {
+      const list = Array.isArray(intervals) ? intervals : [];
+      intervalFilter.innerHTML = '';
+      list.forEach((opt) => {
+        const o = document.createElement('option');
+        o.value = opt.id;
+        o.textContent = opt.label;
+        intervalFilter.appendChild(o);
+      });
+      intervalFilter.value = selectedId || 'all';
+      if (intervalFilter.value !== (selectedId || 'all') && list.length) {
+        intervalFilter.value = list[0].id;
+      }
     }
 
     function commitLabel(c) {
@@ -354,6 +451,7 @@ function getSidebarHtml(): string {
         'hash: ' + (c.hash || '-'),
         'message: ' + (c.subject || '(no message)'),
         'time: ' + (c.timestamp || '-'),
+        'main-head: ' + (c.mainHead ? short(c.mainHead) : '(none)'),
       ];
       if (isAiCommit(c)) {
         lines.push('source: AI agent');
@@ -393,10 +491,21 @@ function getSidebarHtml(): string {
       btnJump.disabled = !active || !payload.hasShadow;
       btnExport.disabled = !payload.onTarget;
 
+      fillIntervalOptions(payload.mainIntervals, payload.selectedIntervalId);
+      const total = typeof payload.totalCount === 'number' ? payload.totalCount : 0;
+      const filtered = typeof payload.filteredCount === 'number' ? payload.filteredCount : 0;
+      filterMeta.textContent = total
+        ? ('表示 ' + filtered + ' / 全体 ' + total)
+        : '';
+
       const commits = Array.isArray(payload.commits) ? payload.commits.slice(0, 30) : [];
       if (!commits.length) {
         commitList.innerHTML = '<div class="empty">' +
-          (payload.workspaceOpen ? '履歴はまだありません。ファイルを保存してください。' : 'ワークスペースを開いてください。') +
+          (payload.workspaceOpen
+            ? (total > 0
+              ? 'この区間にマイクロ履歴はありません。区間フィルタを変えてください。'
+              : '履歴はまだありません。ファイルを保存してください。')
+            : 'ワークスペースを開いてください。') +
           '</div>';
         return;
       }
@@ -449,9 +558,27 @@ function getGraphHtml(): string {
     overflow-x: auto;
   }
   #graph-area { display: block; }
-  .header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; }
+  .header { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
   h3 { margin: 0; color: var(--vscode-descriptionForeground, #888); font-weight: 600; }
   .meta { color: var(--vscode-descriptionForeground, #888); font-size: 12px; }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+  .toolbar label { color: var(--vscode-descriptionForeground, #888); font-size: 12px; }
+  select#interval-filter {
+    min-width: 260px;
+    max-width: 100%;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid var(--vscode-panel-border, #555);
+    background: var(--vscode-editor-background, #1e1e1e);
+    color: var(--vscode-editor-foreground, #fff);
+    font: inherit;
+  }
   #empty { padding: 20px; color: var(--vscode-descriptionForeground, #888); }
   .node { cursor: pointer; fill: #007acc; transition: 0.15s; }
   .node:hover { fill: #fff; }
@@ -491,6 +618,10 @@ function getGraphHtml(): string {
     <h3>MicroGit タイムライン</h3>
     <div class="meta" id="meta"></div>
   </div>
+  <div class="toolbar">
+    <label for="interval-filter">メインコミット区間</label>
+    <select id="interval-filter"></select>
+  </div>
   <div id="empty" hidden>履歴がまだありません。</div>
   <svg id="graph-area" width="100%" height="80px"></svg>
   <div id="graph-tip" class="hover-tip" hidden></div>
@@ -500,9 +631,29 @@ function getGraphHtml(): string {
     const empty = document.getElementById('empty');
     const meta = document.getElementById('meta');
     const graphTip = document.getElementById('graph-tip');
+    const intervalFilter = document.getElementById('interval-filter');
+
+    intervalFilter.onchange = () => {
+      vscode.postMessage({ command: 'setInterval', intervalId: intervalFilter.value });
+    };
 
     function short(hash) {
       return hash ? hash.substring(0, 7) : '-';
+    }
+
+    function fillIntervalOptions(intervals, selectedId) {
+      const list = Array.isArray(intervals) ? intervals : [];
+      intervalFilter.innerHTML = '';
+      list.forEach((opt) => {
+        const o = document.createElement('option');
+        o.value = opt.id;
+        o.textContent = opt.label;
+        intervalFilter.appendChild(o);
+      });
+      intervalFilter.value = selectedId || 'all';
+      if (intervalFilter.value !== (selectedId || 'all') && list.length) {
+        intervalFilter.value = list[0].id;
+      }
     }
 
     function commitLabel(commit) {
@@ -548,6 +699,7 @@ function getGraphHtml(): string {
         'hash: ' + (commit.hash || '-'),
         'message: ' + (commit.subject || '(no message)'),
         'time: ' + (commit.timestamp || '-'),
+        'main-head: ' + (commit.mainHead ? short(commit.mainHead) : '(none)'),
       ];
       if (isAiCommit(commit)) {
         lines.push('source: AI agent');
@@ -574,15 +726,22 @@ function getGraphHtml(): string {
     }
 
     function render(payload) {
+      fillIntervalOptions(payload.mainIntervals, payload.selectedIntervalId);
       const commitsAsc = Array.isArray(payload.commits) ? payload.commits.slice().reverse() : [];
+      const total = typeof payload.totalCount === 'number' ? payload.totalCount : commitsAsc.length;
+      const filtered = typeof payload.filteredCount === 'number' ? payload.filteredCount : commitsAsc.length;
       meta.textContent = (payload.currentTag || '-') + ' · ' +
-        (payload.currentHead ? payload.currentHead.substring(0, 7) : '-');
+        (payload.currentHead ? payload.currentHead.substring(0, 7) : '-') +
+        ' · 表示 ' + filtered + '/' + total;
 
       hideTip();
       while (svg.firstChild) { svg.removeChild(svg.firstChild); }
 
       if (!commitsAsc.length) {
         empty.hidden = false;
+        empty.textContent = total > 0
+          ? 'この区間にマイクロ履歴はありません。区間フィルタを変えてください。'
+          : '履歴がまだありません。';
         svg.setAttribute('height', '40px');
         return;
       }

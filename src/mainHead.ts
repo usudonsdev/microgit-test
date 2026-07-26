@@ -88,8 +88,8 @@ export function buildMainIntervalOptions(
             ? `${shortHash(base.hash)} → ${shortHash(newer.hash)}`
             : `${shortHash(base.hash)} → いまの作業`;
         const label = `${range}  ${truncateSubject(base.subject || '(no subject)')}`;
-        // 現在 HEAD・ログ上の隣接・実際にマイクロが紐づくものだけ出す
-        if (i === 0 || i === 1 || seenMicro.has(baseLower) || (newer && seenMicro.has(newer.hash.toLowerCase()))) {
+        // 現在 HEAD、または実際にマイクロが紐づく区間だけ出す
+        if (i === 0 || seenMicro.has(baseLower)) {
             options.push({
                 id: baseLower,
                 label,
