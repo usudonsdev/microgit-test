@@ -186,16 +186,33 @@ flowchart TB
         SYNC[workspace 同期<br/>同一内容はスキップ]
     end
 
+    subgraph Share["他デバイス共有（分岐のみ・合流なし）"]
+        PUB[Publish<br/>bare tip を親 refs/microgit/* へ]
+        STAGE[Fetch: 一時 ref で受信<br/>refs/microgit-remote/*<br/>まだ tip には触れない]
+        CHECK{祖先判定<br/>merge-base --is-ancestor}
+        ADV[fast-forward<br/>tip を前進]
+        FORK[発散<br/>新規 mb-N として分岐追加<br/>tip はそのまま]
+    end
+
     SAVE -->|Main-Head 付与| SHADOW
     SAVE --> OV
     UI -->|区間で絞り込み| SHADOW
     JUMP --> OV
     OV --> SYNC
     UI --> JUMP
-    SHADOW -->|refs/microgit/*| REMOTE[親 repo の push / pull]
+    SHADOW --> PUB
+    PUB <-->|refs/microgit/*| REMOTE[(origin)]
+    REMOTE --> STAGE
+    STAGE --> CHECK
+    CHECK -->|incoming が子孫| ADV
+    CHECK -->|祖先関係なし| FORK
+    ADV --> SHADOW
+    FORK --> SHADOW
 ```
 
 論文の OverlayGit が「Git チェックアウトを OverlayFS で置き換える」なら、MicroGit は「**超高頻度の個人履歴を、Overlay っぽいやり方で軽く行き来する**」ための別用途のツールです。エンジンは Git、切替の軽さは「先に展開しておく」発想、という分担だけ借りています。v4 では通常 Git のコミット境界とマイクロ履歴を **Main-Head で橋渡し**しています。
+
+他デバイス共有もマージはしません。マイクロ履歴のコミットは常に単一親（`commit-tree -p`）で、合流点を作る経路自体を持ち込んでいないためです。Fetch のたびに incoming を一時 ref で受け、祖先判定で fast-forward できるときだけ tip を進め、発散していれば既存 tip には触れず新しい `mb-N` として分岐を追加するだけにしています。これにより「Fetch しただけでローカルの未 publish な履歴が上書きで消える」事故を防いでいます。
 
 ---
 

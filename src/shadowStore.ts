@@ -132,12 +132,76 @@ export function publishToParentRefs(
     log?.(`親 refs へ publish: ${prefix}/*`);
 }
 
-/** 親の refs/microgit/<branch>/ から bare へ取り込む（pull 後の他デバイス復元用） */
+export type ImportOutcome = 'no-remote' | 'up-to-date' | 'initial' | 'fast-forward' | 'diverged' | 'error';
+
+export interface ImportResult {
+    outcome: ImportOutcome;
+    /** outcome === 'diverged' のとき、取り込み先を指す新規タグ */
+    forkTag?: string;
+}
+
+const STAGING_TIP_REF = 'refs/microgit-remote/incoming';
+const STAGING_TAG_PREFIX = 'refs/microgit-remote/tags';
+
+/** a が b の祖先（a → b が fast-forward）なら true */
+function isAncestor(gitDir: string, ancestorRef: string, descendantRef: string): boolean {
+    try {
+        execFileSync('git', ['--git-dir', gitDir, 'merge-base', '--is-ancestor', ancestorRef, descendantRef], {
+            stdio: ['pipe', 'pipe', 'pipe'],
+            windowsHide: true,
+        });
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+/** mb-* の次番号を払い出す（合流はしない前提の分岐専用タグ） */
+function nextMbTag(gitDir: string): string {
+    const stdout = tryGitDir(gitDir, ['tag', '-l', 'mb-*']) ?? '';
+    let maxNum = 0;
+    for (const tag of stdout.trim().split('\n').filter(Boolean)) {
+        const m = tag.match(/^mb-(\d+)$/);
+        if (m) {
+            const n = parseInt(m[1], 10);
+            if (n > maxNum) { maxNum = n; }
+        }
+    }
+    return `mb-${maxNum + 1}`;
+}
+
+/**
+ * 一時領域に取り込んだ mb-* タグを bare の refs/tags へ採用する。
+ * 同名タグが既に別コミットを指す場合は上書きせず、新番号で採番し直す（合流しない）。
+ */
+function adoptIncomingTags(gitDir: string, incomingTags: string[]): void {
+    for (const tag of incomingTags) {
+        const stagedRef = `${STAGING_TAG_PREFIX}/${tag}`;
+        const stagedHash = tryGitDir(gitDir, ['rev-parse', '--verify', stagedRef])?.trim();
+        if (!stagedHash) { continue; }
+        const localHash = tryGitDir(gitDir, ['rev-parse', '--verify', `refs/tags/${tag}`])?.trim();
+        if (!localHash) {
+            runGitDir(gitDir, ['tag', tag, stagedHash]);
+        } else if (localHash !== stagedHash) {
+            runGitDir(gitDir, ['tag', nextMbTag(gitDir), stagedHash]);
+        }
+        tryGitDir(gitDir, ['update-ref', '-d', stagedRef]);
+    }
+}
+
+/**
+ * 親の refs/microgit/<branch>/ から bare へ取り込む（pull 後の他デバイス復元用）。
+ *
+ * 安全性方針（docs/design-policy.md §4.1）: マージはしない。分岐のみ・合流なし。
+ * incoming は必ず一時 ref（refs/microgit-remote/*）へ受けてから祖先判定し、
+ * refs/heads/micro-history（現在の作業 tip）は fast-forward のときだけ前進させる。
+ * 発散している場合は tip に触れず、incoming 側を新規 mb-N タグとして追加するだけにする。
+ */
 export function importFromParentRefs(
     mainRepoPath: string,
     mainBranch: string,
     log?: (message: string, level?: 'INFO' | 'WARN' | 'ERROR') => void,
-): void {
+): ImportResult {
     const bare = bareGitDirPath(mainRepoPath, mainBranch);
     const workTree = shadowWorkTreePath(mainRepoPath);
     ensureShadowRepoForBranch(mainRepoPath, mainBranch, log);
@@ -145,41 +209,70 @@ export function importFromParentRefs(
     const parentGit = path.join(mainRepoPath, '.git');
     const prefix = parentMicroRefPrefix(mainBranch);
 
-    const tip = tryRunParent(mainRepoPath, ['rev-parse', '--verify', `${prefix}/micro-history`]);
-    if (!tip) {
+    const incomingTip = tryRunParent(mainRepoPath, ['rev-parse', '--verify', `${prefix}/micro-history`]);
+    if (!incomingTip) {
         log?.(`親に ${prefix}/micro-history がありません（未共有または未 publish）`);
-        return;
+        return { outcome: 'no-remote' };
     }
+    const trimmedIncomingTip = incomingTip.trim();
 
     try {
-        runGitDir(bare, [
-            'fetch',
-            parentGit,
-            `+${prefix}/micro-history:refs/heads/micro-history`,
-        ]);
-        // タグ
+        // 1) incoming は一時 ref に受ける。ここではまだ現在の tip に触れない。
+        runGitDir(bare, ['fetch', parentGit, `+${prefix}/micro-history:${STAGING_TIP_REF}`]);
+
         const tagOut = tryRunParent(mainRepoPath, [
             'for-each-ref',
             '--format=%(refname:strip=3)',
             `${prefix}/tags`,
         ]) ?? '';
-        for (const tag of tagOut.trim().split('\n').filter(Boolean)) {
-            if (!/^mb-\d+$/.test(tag)) { continue; }
+        const incomingTags = tagOut.trim().split('\n').filter((t) => /^mb-\d+$/.test(t));
+        for (const tag of incomingTags) {
             try {
-                runGitDir(bare, [
-                    'fetch',
-                    parentGit,
-                    `+${prefix}/tags/${tag}:refs/tags/${tag}`,
-                ]);
+                runGitDir(bare, ['fetch', parentGit, `+${prefix}/tags/${tag}:${STAGING_TAG_PREFIX}/${tag}`]);
             } catch { /* ignore single tag */ }
         }
+
+        const localTip = tryGitDir(bare, ['rev-parse', '--verify', 'refs/heads/micro-history'])?.trim();
+        let outcome: ImportOutcome;
+        let forkTag: string | undefined;
+
+        if (!localTip) {
+            // 初回 import: 手元にまだ何もないのでそのまま採用してよい
+            runGitDir(bare, ['update-ref', 'refs/heads/micro-history', trimmedIncomingTip]);
+            outcome = 'initial';
+        } else if (localTip === trimmedIncomingTip) {
+            outcome = 'up-to-date';
+        } else if (isAncestor(bare, localTip, trimmedIncomingTip)) {
+            // fast-forward: 手元の tip は incoming の祖先 → 前進させても失われるものはない
+            runGitDir(bare, ['update-ref', 'refs/heads/micro-history', trimmedIncomingTip]);
+            outcome = 'fast-forward';
+        } else if (isAncestor(bare, trimmedIncomingTip, localTip)) {
+            // 手元の方が新しい: incoming に新しい情報はないので tip はそのまま
+            outcome = 'up-to-date';
+        } else {
+            // 発散: 上書きせず、incoming を新規 mb-N として分岐追加するだけ（合流しない）
+            forkTag = nextMbTag(bare);
+            runGitDir(bare, ['tag', forkTag, trimmedIncomingTip]);
+            outcome = 'diverged';
+        }
+
+        adoptIncomingTags(bare, incomingTags);
+        tryGitDir(bare, ['update-ref', '-d', STAGING_TIP_REF]);
+
         runGitDir(bare, ['symbolic-ref', 'HEAD', 'refs/heads/micro-history']);
-        // 作業ツリーを tip に合わせる（ファイルが空でもよい）
+        // 作業ツリーを（変更されたかもしれない）tip に合わせる
         tryGitDir(bare, ['checkout', '-f', 'micro-history'], workTree);
-        log?.(`親 refs から import: ${prefix}/* → bare`);
+
+        if (outcome === 'diverged') {
+            log?.(`履歴が発散していたため、新しい分岐として取り込みました: ${forkTag} (${trimmedIncomingTip.substring(0, 7)})`, 'WARN');
+        } else {
+            log?.(`親 refs から import: ${prefix}/* → bare (${outcome})`);
+        }
+        return { outcome, forkTag };
     } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         log?.(`親 refs からの import に失敗: ${message}`, 'ERROR');
+        return { outcome: 'error' };
     }
 }
 

@@ -2,6 +2,12 @@
 
 All notable changes to the "MicroGit" extension will be documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- `MicroGit: Fetch Micro History` が、ローカルの未 publish なマイクロ履歴を警告なしに上書き消去しうる欠陥を修正
+- `importFromParentRefs` は incoming を一時 ref で受けてから祖先判定し、fast-forward のときだけ tip を前進。発散時は tip に触れず新規 `mb-N` タグとして分岐追加するのみ（マージはしない方針、`docs/design-policy.md` §4.1）
+
 ## [4.0.0] - 2026-07-26
 
 ### Added

@@ -1,6 +1,6 @@
 # MicroGit 設計方針
 
-最終更新: 2026-07-26（v4.0.0: Main-Head + 区間 UI 実装／A + Overlay + 共有 α）
+最終更新: 2026-07-27（エージェント成果物のリポジトリ内ドキュメント化／Claude Code 併用）
 
 ## 1. 現段階のスコープ
 
@@ -85,6 +85,58 @@ hotfix   → マイクロ空間 C
 - メインのコミットに「普通の追跡可能データ」としてマイクロ履歴が載る（または親 `.git` の refs が push に含まれる明確な手順）
 - pull 後、拡張が自動で読み込み、同じマイクロ tip から続きの保存ができる
 - ネストした第二の `.git` を作業ツリーに晒して add させる方式はやめる
+
+### 4.1 安全性: Fetch / Publish の非破壊化（分岐のみ・合流なし）
+
+#### 現状の欠陥（2026-07-27 レビューで判明）
+
+`refs/microgit/*` の同期処理が全経路で**強制上書き**になっている。
+
+| 箇所 | 処理 | 危険性 |
+|------|------|--------|
+| `fetchMicrogitRefsFromOrigin`（`shadowStore.ts`） | `git fetch origin +refs/microgit/*:refs/microgit/*` | ローカルに未 publish のマイクロ履歴があっても origin の内容でその場で丸ごと上書き |
+| `importFromParentRefs`（`shadowStore.ts`） | bare へ `+prefix/micro-history:refs/heads/micro-history`（強制 fetch） | ローカル bare の未 publish tip を親の `refs/microgit/*` で問答無用に上書き |
+| `publishToParentRefs`（`shadowStore.ts`） | 親 `.git` へ `push --force` | ローカル→親自体は実害小さいが、最終的に origin を取り合う形になる |
+
+「Fetch を実行しただけで、ローカルの未 publish マイクロ履歴が警告なしに消える」が最悪シナリオ。
+
+#### 確定方針: マージはしない。発散は常に新しい分岐（`mb-N`）として扱う
+
+**採らない案: 3-way マージによる自動コンフリクト解決**
+
+- 却下理由: マイクロ履歴のコミットはすべて `commit-tree -p <parent>` で**単一親のみ**を持つ（`extension.ts` の `runShadowCommit`）。merge commit（複数親）を作る経路がそもそも存在せず、これは意図的な不変条件である
+- 履歴同士の「本線」は常に一本の線でしかつながらない。合流点を作る発想自体を持ち込まない
+- §2.1「全体同期は仕様」（部分マージをデフォルトにしない）とも整合する。合流の仕組みを作るくらいなら、Cherry-pick（§2.2、将来機能）で必要な差分だけ拾えばよい
+
+**採る案: 発散検知 → 上書きせず新規タグとして分岐**
+
+1. 取り込み予定の tip はまず別の一時 ref（`refs/microgit-remote/incoming`、tag は `refs/microgit-remote/tags/<tag>`）に fetch し、`micro-history` 本体には触れない
+2. `git merge-base --is-ancestor <local> <incoming>` で関係を判定
+   - incoming が local の子孫（fast-forward）→ そのまま前進。これまで通り
+   - local が incoming の子孫（相手に新しい情報なし）→ 何もしない
+   - **発散**（合流ではなく分岐として処理）→ `micro-history`（現在の tip）には触れず、incoming の tip に新規 `mb-N` タグを打つだけ。ユーザーには「他デバイスの履歴を新しい分岐として取り込みました（mb-N）」と通知。以後は既存の `jumpToCommit` / グラフ UI でどちらの分岐を続けるか選べる
+   - 取り込んだ `mb-*` タグ名がローカルの既存タグと衝突し、かつ指すコミットが異なる場合も上書きせず新番号で採番し直す（`adoptIncomingTags`）
+3. **明示的な backup ref は採用しなかった**: 上記のロジックは fast-forward・no-op・新規タグ追加の3パターンしか存在せず、いずれも既存 ref を破壊的に上書きしない。したがって「上書き前の保険」を別途持つ必要がない（採らなかった案として記録）
+4. `fetchMicrogitRefsFromOrigin`（origin ⇄ 親 `.git` の `refs/microgit/*` ミラー）は force fetch のまま変更していない。理由: `refs/microgit/*` は `publishToParentRefs` が bare の実体（`micro-history` tip + `mb-*`）から毎回まるごと再生成する**完全な派生ミラー**であり、それ単独でしかユーザーの作業を記録している箇所は無い。実際にユーザーの作業を一意に保持するのは常に bare の `refs/heads/micro-history` であり、そこを守る #1-2 だけで安全性は担保される
+5. `publishToParentRefs` の origin 側は現状すでに非 force。非 fast-forward で弾かれた場合、現状は失敗ログに埋もれるだけなので「先に Fetch してください」と明示的にユーザーへ通知する（未実装・残タスク）
+
+#### 実装状況（2026-07-28）
+
+- `shadowStore.ts` の `importFromParentRefs` を上記の非破壊ロジックに書き換え済み（`ImportResult` として `outcome: 'no-remote' | 'up-to-date' | 'initial' | 'fast-forward' | 'diverged' | 'error'` を返す）
+- `microgit.fetchMicroHistory` コマンドは `diverged` のとき通常の情報メッセージではなく警告メッセージで新規タグ名を明示
+- ブランチ切替時の自動 import（`prepareShadowForBranch`）は戻り値を使わずログ出力のみ（バックグラウンド処理のため画面通知は不要と判断）
+- 検証: 2デバイス相当（bare リポジトリ2つ）を模した手動シナリオで「初回 import」「fast-forward」「発散（片方に未 publish ローカルコミットがある状態での fetch）」の3パターンを実行し、発散時にローカルの未 publish コミットが tip として保持されたまま失われないことを確認済み。自動テストへの組み込みは未実施（§ テスト方針は別途要検討）
+
+#### 速度とのトレードオフ
+
+すべて Fetch / Publish という低頻度の明示操作にのみ挟まる。保存のたびに走る `runShadowCommit` のホットパスには一切手を入れない。
+
+| 対策 | 追加コスト | 発生頻度 | 評価 |
+|------|-----------|---------|------|
+| `merge-base --is-ancestor` 判定 | git 呼び出し1回 | Fetch/Publish 実行時のみ | 無視できる |
+| 上書き前の backup ref | ref 作成1つ（オブジェクト複製なし） | 同上 | ほぼゼロコスト |
+| 発散を `mb-N` 新分岐として取り込む | Overlay の view/layer が新分岐分だけ後で生成される | 発散時のみ（稀） | Overlay は元々兄弟分岐前提の設計。追加コストは通常の分岐作成と同等。ディスク使用量のみ増加 |
+| `dag.json` のアトミック書き込み（tmp+rename） | 追加ファイル I/O 1回 | 保存のたび | 無視できる（複数ウィンドウでの読み書き競合対策として別途推奨） |
 
 ## 5. アーキテクチャ比較: 既存 Git 利用 vs Git 再構築
 
@@ -199,8 +251,32 @@ PR レビュー WF のエクスポートで `mainHead` 区間切り出しを再�
 
 マイクロ履歴に秘密情報が残りうる。PR 添付はオプトイン。除外／redaction を設計に含める。
 
-## 8. 関連ドキュメント
+## 8. エージェント成果物のリポジトリ内ドキュメント化
+
+Cursor と Claude Code を併用する。チャット履歴・コンテキスト窓は端末／セッション／ツールごとに分断され、トークン限界後は再投入コストも高い。そのため **エージェントとの会話で得た知見は、チャットに残さずリポジトリのドキュメント／コメントとして残す**。
+
+### 対象となる成果物
+
+| 種別 | 例 | 置き場所の目安 |
+|------|-----|----------------|
+| 設計判断・トレードオフ | A vs B の選定理由、採らなかった案 | `docs/design-policy.md` または `docs/` 配下の専用メモ |
+| Agent Skills / ルール由来の運用 | スキル適用結果、繰り返し守る手順 | `AGENTS.md` / `CLAUDE.md`、必要なら `.cursor/rules/` |
+| 実装上の不変条件・罠 | なぜこの順序か、壊してはいけない前提 | 該当ソースの近傍コメント、または `docs/` |
+| 調査結果・既知の制限 | amend で区間がずれる、など | 設計方針または該当モジュールの README 相当 |
+
+### エージェントへの要求（Cursor / Claude Code 共通）
+
+1. **設計判断を確定・変更したら**、チャット要約だけで終わらせず、該当ドキュメントを同じ作業単位で更新する  
+2. **「なぜそうするか」を残す**（何を変えたかより、採択理由・却下理由・前提・制約を詳細に）  
+3. **Skills・ルール・フックで得た手順**も、再利用されるならリポジトリ側に書く（個人チャット専用にしない）  
+4. 新規ドキュメントは既存の `docs/` 構成に合わせ、§9 の関連一覧へリンクを足す  
+5. 秘密情報・トークン・個人の請求情報はドキュメントに書かない  
+
+詳細な作業指示はリポジトリ直下の [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md) を正とする。
+
+## 9. 関連ドキュメント
 
 - 利用者向け: [README.md](../README.md)
 - Overlay: [NodeOverlay.md](./NodeOverlay.md)
 - 変更履歴: [CHANGELOG.md](../CHANGELOG.md)
+- エージェント共通指示: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)

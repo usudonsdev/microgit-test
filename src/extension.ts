@@ -323,9 +323,15 @@ export function activate(context: vscode.ExtensionContext) {
             }
             try {
                 fetchMicrogitRefsFromOrigin(rootPath, (m, l) => ExtensionLogger.log(m, l));
-                importFromParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
+                const result = importFromParentRefs(rootPath, branch!, (m, l) => ExtensionLogger.log(m, l));
                 reloadMicroTagFromShadow(rootPath);
-                vscode.window.showInformationMessage(`[MicroGit] refs/microgit を取り込みました（${branch}）`);
+                if (result.outcome === 'diverged' && result.forkTag) {
+                    vscode.window.showWarningMessage(
+                        `[MicroGit] 他デバイスの履歴が発散していたため、新しい分岐として取り込みました（${result.forkTag}）。現在の作業は変更していません。`
+                    );
+                } else {
+                    vscode.window.showInformationMessage(`[MicroGit] refs/microgit を取り込みました（${branch}・${result.outcome}）`);
+                }
                 refreshUi(rootPath);
             } catch (err: unknown) {
                 const message = err instanceof Error ? err.message : String(err);
