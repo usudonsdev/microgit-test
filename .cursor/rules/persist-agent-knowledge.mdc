@@ -1,0 +1,20 @@
+---
+description: Persist agent design decisions and Skills outcomes into repo docs (Cursor + Claude Code)
+alwaysApply: true
+---
+
+# エージェント成果物のドキュメント化
+
+Cursor と Claude Code を併用する。チャットは共有されず、トークン限界後の再投入も高い。
+
+## 必須
+
+設計判断・トレードオフ・却下案・Agent Skills 由来の手順・実装の不変条件／罠が会話で固まったら、**同じ作業でリポジトリに詳細に書く**。チャット要約だけで終わらせない。
+
+| 内容 | 置き場所 |
+|------|----------|
+| 設計判断 | `docs/design-policy.md` または `docs/` |
+| Skills / 運用 | `AGENTS.md` / `CLAUDE.md` / `.cursor/rules/` |
+| 不変条件・罠 | ソース近傍コメントまたは `docs/` |
+
+「なぜ」を優先し、後続エージェントがファイルだけで再開できる粒度にする。秘密情報は書かない。正本は `AGENTS.md` と `docs/design-policy.md` §8。
