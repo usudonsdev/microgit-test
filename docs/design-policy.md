@@ -278,5 +278,6 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 
 - 利用者向け: [README.md](../README.md)
 - Overlay: [NodeOverlay.md](./NodeOverlay.md)
+- 卒業研究（ビルド検証エンジン）: [build-verification-engine.md](./build-verification-engine.md) — マイクロコミット単位のビルド成否の悉皆記録と、ブランチ追従 CoW キャッシュ。MicroGit 本体とは別プロセス（同 §14 に接続点）
 - 変更履歴: [CHANGELOG.md](../CHANGELOG.md)
 - エージェント共通指示: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)

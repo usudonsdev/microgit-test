@@ -1,5 +1,5 @@
 ---
-title: "LINEから3Dモデルと図面を作るボットを、大学3年で作った話"
+title: "LINE で「かご」を頼んだら、板が空中に浮いた 3D モデルが返ってきた"
 emoji: "🛠️"
 type: "tech"
 topics: ["aws", "line", "raspberrypi", "cad", "bedrock"]
@@ -8,7 +8,7 @@ published: true
 
 LINE で「かごを作りたい」と送ったら、板が空中にバラバラに浮いた 3D モデルが返ってきました。
 
-原因を追うと、「かご」がキーワード分類にヒットせず Bedrock の自由生成に回り、そこで生成されたコードが build123d に存在しない API を呼んでいた、という話でした。この手の地味な事故を何十回か踏みながら作ったのが **DIY Agent（LINE CAD Bot）** です。
+原因を追うと、「かご」がキーワード分類にヒットせず Bedrock の自由生成に回り、そこで生成されたコードが build123d に存在しない API を呼んでいた、という話でした。この手の地味な事故を何十回か踏みながら作ったのが **DIY-Agent（LINE CAD Bot）** です。
 
 やりたかったことは単純で、スマホから「棚が欲しい」と伝えて、数十秒後に 3D プレビューが届くこと。プロ向けの CAD は高機能すぎるし、DIY でいちばんしんどいのは「頭の中にある形」を CAD に落とす作業だと感じていたからです。
 
@@ -156,7 +156,7 @@ Anthropic モデルはユースケース申請が必要で、最初はそこで�
 
 ---
 
-## 設計で効いたこと
+## 学んだこと
 
 振り返ると、次の 3 つが効いていました。
 
@@ -199,7 +199,7 @@ Pi 経路は消さず、SAM パラメータ `CadBackend=iot` で切り替えら�
 | ユーザー入口 | LINE のみ | Web のみ（`line-diy-cad-webhook` は 410 のスタブ、旧実装は `archive/line-bot/`） |
 | 認証 | LINE のユーザー ID | Cognito User Pool `diy-cad-web-users`（Google + メール） |
 | Lambda 数 | 4 | 6（+ `line-cad-web-api` / `line-cad-analyze`） |
-| CAD 実行 | Raspberry Pi 4 + build123d | Fargate Spot（FreeCAD 1.1.3 + CalculiX + build123d） |
+| CAD 実行 | Raspberry Pi 4 + build123d | Fargate Spot（FreeCAD 1.1.3 + CalculiX）※現行は FreeCAD に一本化、build123d 経路は休止 |
 | 成果物 | STL + JIS 風 SVG | + PDF / DXF / 強度チェック（応力分布 SVG・レポート PDF） |
 | CAD 品質保証 | なし | 単一連結ソリッド検証 → 不合格なら LLM 再生成リトライ |
 | Web 画面 | （なし） | チャット / 図面ビューア / 履歴 / メトリクス / 同意 UI |
@@ -220,7 +220,7 @@ Web 中心になったあとの構成は、別記事「Raspberry Pi 4 で CAD �
 
 面白いのは、**構想図にあって MVP で捨てた Fargate + Headless FreeCAD が、v2.1.0 で本当に必要になって戻ってきた**ことでした。「学生の予算では無理」と一度諦めた選択肢に、要求が育ってから戻る。構想図は実現できなかった絵ではなく、**まだ順番が来ていない絵**だったわけです。
 
-大学 3 年として、クラウド・エッジ・LLM・CAD・LINE を一本の線でつなげられたのは大きな収穫でした。悪戦苦闘の記憶も含めて、それが DIY Agent（LINE CAD Bot）の制作記録です。
+クラウド・エッジ・LLM・CAD・LINE を一本の線でつなげられたのは大きな収穫でした。悪戦苦闘の記憶も含めて、それが DIY-Agent（LINE CAD Bot）の制作記録です。
 
 ---
 

@@ -12,14 +12,16 @@ published: true
 
 FreeCAD を足したら、起動するだけで数 GB の RAM を持っていかれ、複雑な本棚のジョブでプロセスが OOM kill される。図面品質を上げようとするほど落ちる。この記事は、そこから CAD の実行環境を **Raspberry Pi → Fargate** に引っ越し、ついでにユーザー入口を **LINE → Web** に移すまでの記録です。
 
-作っているのは **DIY CAD** — ブラウザのチャットに「壁に付ける本棚、幅30×奥行20×高さ40cm」と打つと、3D モデル（STL）と寸法付き図面（SVG / PDF）が返ってくるサービスです。
+作っているのは **DIY-Agent** — ブラウザのチャットに「壁に付ける本棚、幅30×奥行20×高さ40cm」と打つと、3D モデル（STL）と寸法付き図面（SVG / PDF）が返ってくるサービスです。
 
-- デモ: [DIY CAD](https://main.dvhn99ddh1wj.amplifyapp.com/)
+- デモ: [DIY-Agent](https://main.dvhn99ddh1wj.amplifyapp.com/)
 - リポジトリ: [usudonsdev/DIY_Agent](https://github.com/usudonsdev/DIY_Agent)
 
-読みどころは 2 つあります。**Pi から Fargate への移行が Worker の一部分だけで済んだ理由**（「引っ越しが 1 箇所で済んだ理由」）と、**強度チェックを足したときに FreeCAD のバージョンに殺されかけた話**（「応力 0.0 は『安全』ではなく『壊れている』」）です。
+読みどころは 2 つあります。**Pi から Fargate への移行が Worker の一部分だけで済んだ理由**（「引っ越しが 1 箇所で済んだ理由」）と、**解析が完全に失敗しているのに「安全です」と返していた話**（「応力 0.0 は『安全』ではなく『壊れている』」）です。
 
 > この記事は v2.1.0（2026-08-07 執筆）を軸に、その後の v2.2.0 までを時系列で追記しています。見出しに時点を入れてあるので、どのバージョンの話かはそこで判断してください。
+>
+> **追記（2026-09）: 現行はすべての生成を FreeCAD 経路に統一し、build123d 経路は休止しています。** 本文中の「エンジン二系統」「エンジン選択」は v2.2.0 時点の記述です。一本化の理由は末尾の「エンジンを FreeCAD に一本化した（2026-09）」に書きました。
 
 ---
 
@@ -57,6 +59,8 @@ flowchart LR
 | v2.0 | Pi 4 + FreeCAD 追加 | 本格図面・JIS PDF が要る | エンジン二系統・承認フロー |
 | v2.1.0 | Fargate Spot | **メモリ不足・OOM** | 安定した図面生成・Web 入口 |
 | v2.2.0 | Fargate（FreeCAD 1.1.3） | 強度チェックの追加 | CAE・Cognito 認証 |
+
+※ この表は v2.2.0 までの履歴です。現行では build123d 経路を休止し、FreeCAD に一本化しています（末尾に追記）。
 
 一方で、**Lambda（指揮）・DynamoDB（ジョブ）・S3（成果物）・Bedrock（コード生成）という骨格は Phase 1 から一度も変えていません。** 変わったのは「誰が STL と PDF をレンダリングするか」だけです。この非対称が、この記事で一番言いたいことです。
 
@@ -161,7 +165,7 @@ CAD 実行基盤とは別の軸で、ユーザー入口も動かしました。
 | 会話 UI | テキスト中心 | チャット + クイックボタン |
 | 材料リストへの拡張 | 載せにくい | 図面ページに足せる |
 
-Pi 時代は LINE が圧倒的に手軽でした。ただ、図面ビューアを自前で持ちたくなった時点で、LINE の中に閉じている理由がなくなります。図面を同一オリジンに置ければ、その先の材料リストやカット指示まで同じページに乗せられる。
+Pi 時代は LINE が最も手軽でした。ただ、図面ビューアを自前で持ちたくなった時点で、LINE の中に閉じている理由がなくなります。図面を同一オリジンに置ければ、その先の材料リストやカット指示まで同じページに乗せられる。
 
 ### v2.1.0 の全体像
 
@@ -258,7 +262,7 @@ Notify Lambda は `web_*` ユーザーに対しては LINE push をスキップ�
 
 ```
 設計をはじめる
-  → エンジン選択（build123d / FreeCAD）
+  → エンジン選択（build123d / FreeCAD）  ※現行では廃止、FreeCAD 固定
   → 寸法 → 作りたいもの → 部屋の雰囲気
   → POST /jobs → ポーリング
   → stl_ready → プレビューリンク + OK / 修正
@@ -276,7 +280,7 @@ Notify Lambda は `web_*` ユーザーに対しては LINE push をスキップ�
 
 ---
 
-## 鍵をかける（v2.2.0）
+## 認証なしで Bedrock を公開していた（v2.2.0）
 
 v2.1.0 の Web API は **Function URL + `AuthType: NONE`**、つまり誰でも POST できる状態でした。当時は「個人開発だしシンプルさを優先」と書いて先送りしています。Bedrock を呼ぶエンドポイントを認証なしで公開しているので、正直に言えば時間の問題でした。
 
@@ -316,7 +320,7 @@ v2.2.0 の目玉は **CAE — 作った家具が使う前に壊れないかの�
 
 結局 **FreeCAD 本体を apt 版 0.19 から公式 AppImage 1.1.3 に差し替え**ました。同じテストで節点/要素比 2.0、CalculiX も正常終了します。イメージサイズは増えましたが、既存の STL・TechDraw PDF/DXF 生成は同じイメージで回帰確認済みで、支配的コストである Bedrock 料金には影響しません。
 
-### 本当に怖かったのはこっち
+### 解析の失敗を「応力 0.0」として返していた
 
 FreeCAD のバージョン問題より深刻なバグが、自分のコードの側にありました。
 
@@ -334,7 +338,7 @@ max_stress = max(von_mises) if von_mises else 0.0
 
 あわせて、`Part::MultiFuse`（`Refine=True`）が体積の負な（向きが反転した）ソリッドを返すバグも直しています。底面が「上向きの面」と誤検出される原因でもありました。
 
-### ついでに、浮いた部品を通さないようにした
+### 浮いた部品を、プロンプトではなく検証で止める
 
 v2.1.0 までは、部品が空中に浮いたままの STL が普通に通っていました。LINE 時代から「かごが変な板の集合体になる」という症状で出ていたやつです。
 
@@ -482,6 +486,34 @@ LLM に CAD コードを書かせる部分は、最初プロンプトで品質�
 
 ---
 
+## エンジンを FreeCAD に一本化した（2026-09）
+
+v2.2.0 までは build123d と FreeCAD の二系統を残し、ユーザーがチャットの最初にエンジンを選ぶ形にしていました。現行ではエンジン選択そのものを廃止し、**すべての生成を FreeCAD 経路に統一**しています。build123d 経路はコードとしては残していますが、通常フローからは外しました。
+
+理由は 2 つあります。
+
+### 失敗したときに、何が残っているかが違う
+
+同じ Bedrock が書いたコードでも、二系統では壊れ方が違いました。
+
+| | build123d | FreeCAD |
+| --- | --- | --- |
+| 実行単位 | スクリプト全体 | ドキュメントへの逐次操作 |
+| 途中で失敗したとき | 何も残らない | 直前までのオブジェクトツリーが残る |
+| 失敗後にできること | 全再生成 | 現在の状態を問い合わせて差分修正 |
+
+build123d はスクリプトを 1 つの実行単位として回すので、途中の 1 行が落ちれば成果物はゼロです。一方 FreeCAD はドキュメントのオブジェクトツリーに逐次追加していくため、N 番目の操作で失敗しても N-1 番目までは実体として残り、「何が出来ていて何が出来ていないか」をそのまま問い合わせられます。
+
+なお、これはテンプレート化の効果ではありません。テンプレートを使うのは棚・箱のような定番形状だけで、全体に占める割合はどちらの経路でも低く、大半は Bedrock の自由生成です。条件を揃えたうえで、失敗の局所性に差が出ています。
+
+### Fargate は実行時間課金なので、全再生成が高くつく
+
+CAD 実行は Fargate Spot の RunTask で、タスクの実行時間がそのまま課金対象です。失敗のたびに最初から作り直すと、成功していた部分の計算まで毎回払い直すことになります。残った状態を使って修正できる経路のほうが、設計としてもコストとしても有利でした。
+
+「プロンプトはお願い、検証は保証」の次に来るのは、**検証で不合格を出したあとに何を返すか**です。いまは不合格なら Bedrock に全再生成させていますが、修正用の操作だけを生成して現在のドキュメントに適用する経路を検討しています。エンジンを一本化したのは、その前提を揃えるためでもあります。
+
+---
+
 ## いま作っているもの
 
 `docs/awsArchitecture/v3.0.0-mechanism/concept.md` として、**可動部を持つ機構**（ヒンジ・引き出し・駆動系）への拡張を進めています。
@@ -494,9 +526,10 @@ v2.2.0 で「単一の連結ソリッドを強制する」検証を入れたば�
 
 ## 参考リンク
 
-- アーキテクチャ v2.1.0（本記事の前半）: `docs/awsArchitecture/v2.1.0/README.md`
-- アーキテクチャ v2.2.0（現行）: `docs/awsArchitecture/v2.2.0/README.md` / `changelog.md`
-- CAE 設計: `docs/awsArchitecture/v2.2.0-cae/concept.md`
-- Pi 4 → FreeCAD → Fargate の詳細: `docs/awsArchitecture/v2.1.0/cad-evolution.md`
-- IAM・予算ブレーキ: `docs/awsArchitecture/v2.1.0/iam-design.md`
-- Web フロント: `web/README.md`
+- リポジトリ: [usudonsdev/DIY_Agent](https://github.com/usudonsdev/DIY_Agent)
+- アーキテクチャ v2.1.0（本記事の前半）: [docs/awsArchitecture/v2.1.0/README.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.1.0/README.md)
+- アーキテクチャ v2.2.0: [docs/awsArchitecture/v2.2.0/README.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.2.0/README.md)
+- CAE 設計: [docs/awsArchitecture/v2.2.0-cae/concept.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.2.0-cae/concept.md)
+- Pi 4 → FreeCAD → Fargate の詳細: [docs/awsArchitecture/v2.1.0/cad-evolution.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.1.0/cad-evolution.md)
+- IAM・予算ブレーキ: [docs/awsArchitecture/v2.1.0/iam-design.md](https://github.com/usudonsdev/DIY_Agent/blob/master/docs/awsArchitecture/v2.1.0/iam-design.md)
+- Web フロント: [web/README.md](https://github.com/usudonsdev/DIY_Agent/blob/master/web/README.md)

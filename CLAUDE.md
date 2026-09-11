@@ -19,3 +19,4 @@ Cursor と併用する。指示の正本は [AGENTS.md](AGENTS.md)。内容が�
 - VS Code / Cursor 拡張: 保存ごとのマイクロ履歴（MicroGit）
 - 設計方針: [docs/design-policy.md](docs/design-policy.md)
 - 利用者向け: [README.md](README.md)
+- 卒業研究（ビルド検証エンジン・計画段階）: [docs/build-verification-engine.md](docs/build-verification-engine.md)
