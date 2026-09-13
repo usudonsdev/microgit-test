@@ -1,13 +1,22 @@
 # ビルド検証エンジン 設計ドキュメント
 
-最終更新: 2026-09-10（§15 マイルストーン計画を追加）
+最終更新: 2026-09-12（実装突き合わせレビューへのリンクを追加）
+
+> **未反映の指摘あり**: 本設計の前提を現行実装と突き合わせた結果、
+> 修正が必要な箇所が [build-verification-engine-review.md](./build-verification-engine-review.md) に列挙されている。
+> とくに R-01（`views/<hash>/` が部分ツリーでコンパイルできない）は F-01 の成立条件に関わる。
+> 本文はレビュー前の状態のまま。採否を決めた項目から本文へ反映する。
 
 > **注記**: プロジェクト名は未決定。本文中では暫定的に「エンジン」と表記する。
 > 命名確定後、インターフェース契約（§7）を固定する。
 
 - ステータス: 計画段階（実装未着手）
 - 関連プロジェクト: MicroGit（VS Code Marketplace 公開済み。設計は [design-policy.md](./design-policy.md)）
-- 位置づけ: 卒業研究の実装対象。研究テーマ「mergeless branching」の一事例
+- 位置づけ: 卒業研究の実装対象。**主軸はビルド検証エンジン側**（構成案 P-2 を 2026-09-12 に決定）。
+  MicroGit は入力トレースを供給する adapter の1つであり、唯一の入力源ではない。
+  旧記述「研究テーマ『mergeless branching』の一事例」は撤回。mergeless はテーマ宣言ではなく
+  **入力履歴に課す前提条件**（単一親の lane）へ格下げする。詳細と根拠は
+  [build-verification-engine-review.md](./build-verification-engine-review.md) §14〜§15。
 
 ---
 

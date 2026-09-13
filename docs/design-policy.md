@@ -278,6 +278,7 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 
 - 利用者向け: [README.md](../README.md)
 - Overlay: [NodeOverlay.md](./NodeOverlay.md)
+- 卒業研究レビュー: [build-verification-engine-review.md](./build-verification-engine-review.md) — エンジン設計の前提を実装と突き合わせた指摘。R-01/R-02 は本ドキュメント §2（記録単位）の変更を要求する
 - 卒業研究（ビルド検証エンジン）: [build-verification-engine.md](./build-verification-engine.md) — マイクロコミット単位のビルド成否の悉皆記録と、ブランチ追従 CoW キャッシュ。MicroGit 本体とは別プロセス（同 §14 に接続点）
 - 変更履歴: [CHANGELOG.md](../CHANGELOG.md)
 - エージェント共通指示: [AGENTS.md](../AGENTS.md) / [CLAUDE.md](../CLAUDE.md)
