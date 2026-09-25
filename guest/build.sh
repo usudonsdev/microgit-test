@@ -19,7 +19,7 @@ source "$HERE/kernel/version.env"
 
 case "$ARCH" in
     arm64) GOARCH=arm64; KARCH=arm64; IMAGE=arch/arm64/boot/Image; TRIPLE=aarch64-linux-gnu ;;
-    x86_64) GOARCH=amd64; KARCH=x86; IMAGE=arch/x86/boot/bzImage; TRIPLE=x86_64-linux-gnu ;;
+    x86_64) GOARCH=amd64; KARCH=x86_64; IMAGE=arch/x86/boot/bzImage; TRIPLE=x86_64-linux-gnu ;;
     *) echo "unsupported ARCH: $ARCH" >&2; exit 1 ;;
 esac
 CROSS=""
@@ -61,7 +61,7 @@ dir /run 0755 0 0
 file /init $OUT/init 0755 0 0
 EOF
 fragment="$OUT/fragment.config"
-cat "$HERE/kernel/microgit.config" > "$fragment"
+cat "$HERE/kernel/microgit.config" "$HERE/kernel/microgit-$ARCH.config" > "$fragment"
 echo "CONFIG_INITRAMFS_SOURCE=\"$OUT/initramfs.list\"" >> "$fragment"
 
 kmake() { make -C "$src" O="$OUT/build" ARCH="$KARCH" CROSS_COMPILE="$CROSS" "$@"; }

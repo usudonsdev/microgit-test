@@ -1,7 +1,7 @@
 name: Guest (minimal Linux)
 
-# 最小ゲスト（カーネル＋agent）をビルドし、QEMU で起動してゴールデンテストを流す（Issue #15, #17）。
-# できた Image は成果物として残し、Mac（Virtualization.framework）での確認に使う（mac/run-golden.sh）。
+# 最小ゲスト（カーネル＋agent）をビルドし、QEMU で起動してゴールデンテストを流す（Issue #15, #17, #18）。
+# できた Image は成果物として残す。arm64 は Mac（mac/run-golden.sh）、x86_64 は Windows（windows/run-golden.ps1）で使う。
 on:
   push:
     branches: [feature/kernel-portability]
@@ -19,9 +19,22 @@ on:
   workflow_dispatch:
 
 jobs:
-  arm64:
+  guest:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            packages: gcc-aarch64-linux-gnu qemu-system-arm
+            # hvc0（カーネルのログ）はファイルへ、名前付きポート "microgit" は QEMU の stdin/stdout へ
+            qemu: >-
+              qemu-system-aarch64 -M virt -cpu max -smp 1 -m 256
+          - arch: x86_64
+            packages: qemu-system-x86
+            qemu: >-
+              qemu-system-x86_64 -M q35 -cpu max -smp 1 -m 256
     steps:
       - uses: actions/checkout@v4
 
@@ -38,8 +51,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential flex bison bc libelf-dev xz-utils \
-            gcc-aarch64-linux-gnu qemu-system-arm
+            build-essential flex bison bc libelf-dev xz-utils ${{ matrix.packages }}
 
       - name: Cache kernel tarball
         uses: actions/cache@v4
@@ -48,29 +60,28 @@ jobs:
           key: linux-${{ hashFiles('guest/kernel/version.env') }}
 
       - name: Build guest
-        run: ARCH=arm64 guest/build.sh
+        run: ARCH=${{ matrix.arch }} guest/build.sh
 
-      # QEMU の virt マシンで起動する。hvc0（カーネルのログ）はファイルへ、
-      # 名前付きポート "microgit" は QEMU の stdin/stdout へつなぎ、check-guest.mjs が命令を流す
       - name: Boot in QEMU and run golden scenarios
         run: |
-          node scripts/golden/check-guest.mjs --json guest/out/arm64/guest-result.json -- \
-            qemu-system-aarch64 -M virt -cpu max -smp 1 -m 256 \
+          out=guest/out/${{ matrix.arch }}
+          node scripts/golden/check-guest.mjs --json $out/guest-result.json -- \
+            ${{ matrix.qemu }} \
               -nodefaults -display none -no-reboot \
-              -kernel guest/out/arm64/Image -append "console=hvc0" \
+              -kernel $out/Image -append "console=hvc0" \
               -device virtio-serial-pci \
-              -chardev file,id=con,path=guest/out/arm64/console.log \
+              -chardev file,id=con,path=$out/console.log \
               -device virtconsole,chardev=con \
               -chardev stdio,id=proto,signal=off \
               -device virtserialport,chardev=proto,name=microgit
 
       - name: Guest console log
         if: always()
-        run: cat guest/out/arm64/console.log || true
+        run: cat guest/out/${{ matrix.arch }}/console.log || true
 
       # 補足 S-3 の確認: GitHub の Ubuntu 24.04 で非特権ユーザー名前空間が使えるか（失敗しても止めない）
       - name: Probe unprivileged user namespaces (S-3)
-        if: always()
+        if: always() && matrix.arch == 'arm64'
         continue-on-error: true
         run: |
           sysctl kernel.apparmor_restrict_unprivileged_userns || true
@@ -79,11 +90,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: microgit-guest-arm64
+          name: microgit-guest-${{ matrix.arch }}
           path: |
-            guest/out/arm64/Image
-            guest/out/arm64/config
-            guest/out/arm64/sizes.txt
-            guest/out/arm64/console.log
-            guest/out/arm64/guest-result.json
+            guest/out/${{ matrix.arch }}/Image
+            guest/out/${{ matrix.arch }}/config
+            guest/out/${{ matrix.arch }}/sizes.txt
+            guest/out/${{ matrix.arch }}/console.log
+            guest/out/${{ matrix.arch }}/guest-result.json
           if-no-files-found: warn
