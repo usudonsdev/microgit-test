@@ -29,3 +29,5 @@ out/test/**
 src/test/**
 test/**
 scripts/golden/**
+guest/**
+mac/**

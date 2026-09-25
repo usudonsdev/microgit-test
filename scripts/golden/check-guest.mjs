@@ -1,0 +1,198 @@
+#!/usr/bin/env node
+/**
+ * ゴールデンテストを最小ゲストの agent（guest/agent）で流し、カーネルの期待値と照合する（Issue #10, #15, #17）。
+ *
+ * 使い方: node scripts/golden/check-guest.mjs [--json <結果の書き出し先>] -- <コマンド> [引数...]
+ *   <コマンド> の stdin/stdout が agent の命令の通り道になるものなら何でもよい。
+ *     QEMU:      qemu-system-aarch64 ... -chardev stdio,id=proto -device virtserialport,chardev=proto,name=microgit
+ *     Mac:       mac/.build/microgit-vm --kernel Image
+ *     VM なし:   unshare -Urm guest/out/arm64/init   （Linux。agent を PID 1 以外で起動すると stdin/stdout で答える）
+ *
+ * Node 実装（check-node.mjs）と違い、既知の食い違いは認めない。ゲストは本物のカーネルなので、一致しなければ失敗。
+ * あわせて、起動から ready までの時間と、commit / view の所要時間を出す（#17 の計測項目）。
+ */
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
+import readline from 'readline';
+import { fileURLToPath } from 'url';
+import { chainOf, parentOf, scenarios, validateScenarios } from './overlayfs-scenarios.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const GOLDEN_DIR = path.join(ROOT, 'test', 'golden', 'overlayfs');
+const BOOT_TIMEOUT_MS = Number(process.env.BOOT_TIMEOUT_MS || 120000);
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 30000);
+
+const argv = process.argv.slice(2);
+const sep = argv.indexOf('--');
+if (sep < 0 || sep === argv.length - 1) {
+    console.error('usage: check-guest.mjs [--json out.json] -- <command> [args...]');
+    process.exit(2);
+}
+const opts = argv.slice(0, sep);
+const [cmd, ...cmdArgs] = argv.slice(sep + 1);
+const jsonOut = opts.includes('--json') ? opts[opts.indexOf('--json') + 1] : undefined;
+
+function readGolden(name) {
+    const commits = [];
+    const text = fs.readFileSync(path.join(GOLDEN_DIR, `${name}.golden`), 'utf8').replace(/\r\n/g, '\n');
+    for (const line of text.split('\n')) {
+        if (!line || line.startsWith('# ')) { continue; }
+        if (line.startsWith('## commit ')) { commits.push([]); continue; }
+        commits[commits.length - 1].push(line);
+    }
+    return commits;
+}
+
+function percentile(values, p) {
+    if (!values.length) { return 0; }
+    const s = [...values].sort((a, b) => a - b);
+    return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
+}
+
+class Agent {
+    constructor(child) {
+        this.child = child;
+        this.nextId = 1;
+        this.pending = new Map();
+        this.readyWaiters = [];
+        this.ready = undefined;
+        this.exited = false;
+        readline.createInterface({ input: child.stdout }).on('line', (line) => this.onLine(line));
+        child.on('exit', (code, signal) => {
+            this.exited = true;
+            const err = new Error(`agent process exited (code=${code} signal=${signal})`);
+            for (const { reject } of this.pending.values()) { reject(err); }
+            this.pending.clear();
+            for (const w of this.readyWaiters) { w.reject(err); }
+        });
+    }
+
+    onLine(line) {
+        let msg;
+        try {
+            msg = JSON.parse(line);
+        } catch {
+            // ゲストの起動前に QEMU などが出す文字は無視する
+            return;
+        }
+        if (msg.event === 'ready') {
+            this.ready = msg;
+            for (const w of this.readyWaiters) { w.resolve(msg); }
+            this.readyWaiters = [];
+            return;
+        }
+        const p = this.pending.get(msg.id);
+        if (!p) { return; }
+        this.pending.delete(msg.id);
+        clearTimeout(p.timer);
+        p.resolve(msg);
+    }
+
+    waitReady() {
+        if (this.ready) { return Promise.resolve(this.ready); }
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error(`agent not ready within ${BOOT_TIMEOUT_MS} ms`)), BOOT_TIMEOUT_MS);
+            this.readyWaiters.push({
+                resolve: (m) => { clearTimeout(timer); resolve(m); },
+                reject: (e) => { clearTimeout(timer); reject(e); },
+            });
+        });
+    }
+
+    request(body) {
+        const id = this.nextId++;
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                this.pending.delete(id);
+                reject(new Error(`timeout: ${JSON.stringify(body).slice(0, 200)}`));
+            }, REQUEST_TIMEOUT_MS);
+            this.pending.set(id, { resolve, reject, timer });
+            this.child.stdin.write(JSON.stringify({ id, ...body }) + '\n');
+        });
+    }
+
+    async call(body) {
+        const res = await this.request(body);
+        if (!res.ok) { throw new Error(`${body.op} failed: ${res.error}`); }
+        return res;
+    }
+}
+
+async function main() {
+    validateScenarios();
+    const started = process.hrtime.bigint();
+    const child = spawn(cmd, cmdArgs, { stdio: ['pipe', 'pipe', 'inherit'] });
+    child.on('error', (e) => { console.error(`cannot start ${cmd}: ${e.message}`); process.exit(2); });
+    const agent = new Agent(child);
+
+    const ready = await agent.waitReady();
+    const bootMs = Number(process.hrtime.bigint() - started) / 1e6;
+    console.log(`ready: kernel=${ready.kernel} agent=${ready.agent} boot=${bootMs.toFixed(0)}ms`);
+
+    const commitUs = [];
+    const viewUs = [];
+    const failures = [];
+    let mountOptions;
+    let exdevRenames = 0;
+
+    for (const s of scenarios) {
+        const golden = readGolden(s.name);
+        await agent.call({ op: 'reset' });
+        const ids = [];
+        for (let i = 0; i < s.commits.length; i++) {
+            const parent = parentOf(s, i);
+            const c = await agent.call({ op: 'commit', parent: parent >= 0 ? ids[parent] : -1, ops: s.commits[i].ops });
+            commitUs.push(c.elapsedUs);
+            mountOptions ??= c.mountOptions;
+            exdevRenames += c.exdevRenames ?? 0;
+            ids.push(c.commit);
+            const v = await agent.call({ op: 'view', commit: c.commit });
+            viewUs.push(v.elapsedUs);
+            const actual = v.entries ?? [];
+            const expected = golden[i];
+            const exp = new Set(expected);
+            const act = new Set(actual);
+            const diff = [
+                ...expected.filter((l) => !act.has(l)).map((l) => `- ${l}`),
+                ...actual.filter((l) => !exp.has(l)).map((l) => `+ ${l}`),
+            ];
+            if (diff.length) {
+                failures.push(`[${s.name}] commit ${i + 1} (chain ${chainOf(s, i).map((n) => n + 1).join('>')})`, ...diff);
+            }
+        }
+    }
+
+    await agent.call({ op: 'poweroff' }).catch(() => { /* 応答前に止まることがある */ });
+    await new Promise((resolve) => {
+        if (agent.exited) { return resolve(); }
+        const t = setTimeout(() => { child.kill(); resolve(); }, 15000);
+        child.on('exit', () => { clearTimeout(t); resolve(); });
+    });
+
+    const summary = {
+        kernel: ready.kernel,
+        agent: ready.agent,
+        mountOptions,
+        exdevRenames,
+        bootMs: Math.round(bootMs),
+        commitUs: { p50: percentile(commitUs, 50), p95: percentile(commitUs, 95), max: Math.max(...commitUs) },
+        viewUs: { p50: percentile(viewUs, 50), p95: percentile(viewUs, 95), max: Math.max(...viewUs) },
+        scenarios: scenarios.length,
+        mismatchedViews: failures.filter((l) => l.startsWith('[')).length,
+    };
+    console.log(JSON.stringify(summary, null, 2));
+    if (jsonOut) { fs.writeFileSync(jsonOut, JSON.stringify({ ...summary, failures }, null, 2) + '\n'); }
+
+    if (failures.length) {
+        console.error('\nカーネルの期待値と食い違った（- は期待値にだけある行、+ はゲストにだけある行）:');
+        for (const l of failures) { console.error(`  ${l}`); }
+        process.exit(1);
+    }
+    console.log(`OK: ${scenarios.length} scenarios がゲストで期待値どおり`);
+}
+
+main().catch((e) => {
+    console.error(e.message);
+    process.exit(1);
+});

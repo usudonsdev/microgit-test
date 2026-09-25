@@ -7,3 +7,6 @@ node_modules
 .microgit_shadow/
 .microgit_logs/
 .microgit_overlay/
+guest/out/
+guest/.cache/
+mac/.build/

@@ -1,0 +1,89 @@
+name: Guest (minimal Linux)
+
+# 最小ゲスト（カーネル＋agent）をビルドし、QEMU で起動してゴールデンテストを流す（Issue #15, #17）。
+# できた Image は成果物として残し、Mac（Virtualization.framework）での確認に使う（mac/run-golden.sh）。
+on:
+  push:
+    branches: [feature/kernel-portability]
+    paths:
+      - 'guest/**'
+      - 'scripts/golden/**'
+      - 'test/golden/**'
+      - '.github/workflows/guest.yml'
+  pull_request:
+    paths:
+      - 'guest/**'
+      - 'scripts/golden/**'
+      - 'test/golden/**'
+      - '.github/workflows/guest.yml'
+  workflow_dispatch:
+
+jobs:
+  arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: guest/agent/go.mod
+          cache: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential flex bison bc libelf-dev xz-utils \
+            gcc-aarch64-linux-gnu qemu-system-arm
+
+      - name: Cache kernel tarball
+        uses: actions/cache@v4
+        with:
+          path: guest/.cache/*.tar.xz
+          key: linux-${{ hashFiles('guest/kernel/version.env') }}
+
+      - name: Build guest
+        run: ARCH=arm64 guest/build.sh
+
+      # QEMU の virt マシンで起動する。hvc0（カーネルのログ）はファイルへ、
+      # 名前付きポート "microgit" は QEMU の stdin/stdout へつなぎ、check-guest.mjs が命令を流す
+      - name: Boot in QEMU and run golden scenarios
+        run: |
+          node scripts/golden/check-guest.mjs --json guest/out/arm64/guest-result.json -- \
+            qemu-system-aarch64 -M virt -cpu max -smp 1 -m 256 \
+              -nodefaults -display none -no-reboot \
+              -kernel guest/out/arm64/Image -append "console=hvc0" \
+              -device virtio-serial-pci \
+              -chardev file,id=con,path=guest/out/arm64/console.log \
+              -device virtconsole,chardev=con \
+              -chardev stdio,id=proto,signal=off \
+              -device virtserialport,chardev=proto,name=microgit
+
+      - name: Guest console log
+        if: always()
+        run: cat guest/out/arm64/console.log || true
+
+      # 補足 S-3 の確認: GitHub の Ubuntu 24.04 で非特権ユーザー名前空間が使えるか（失敗しても止めない）
+      - name: Probe unprivileged user namespaces (S-3)
+        if: always()
+        continue-on-error: true
+        run: |
+          sysctl kernel.apparmor_restrict_unprivileged_userns || true
+          if unshare -Urm true; then echo "unprivileged userns: allowed"; else echo "unprivileged userns: blocked"; fi
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: microgit-guest-arm64
+          path: |
+            guest/out/arm64/Image
+            guest/out/arm64/config
+            guest/out/arm64/sizes.txt
+            guest/out/arm64/console.log
+            guest/out/arm64/guest-result.json
+          if-no-files-found: warn
