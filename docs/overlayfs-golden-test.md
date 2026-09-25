@@ -92,8 +92,8 @@ Windows（Node 25）と WSL2 上の Linux（Node 22）の両方で同じ一覧�
 - WSL2 のカーネルでは、Ubuntu 24.04 でも非特権ユーザー名前空間での overlay mount が通る。補足 S-3 の「Ubuntu 23.10 以降は AppArmor が非特権ユーザー名前空間を制限する」は、WSL2 のカーネルでは効いていない
 - `userxattr` 付きの非特権 mount では、`redirect_dir` を指定しないと `nofollow` になった（root での mount とは比べていない）
 
-推測（未確認）：
-- `redirect_dir=nofollow` なので、下の層にあるディレクトリの rename は `EXDEV` になり、`mv` はコピーと削除で代わりにやっているはず。ビューは一致するが、upper にはディレクトリ全体のコピーが入る。大きなディレクトリの rename が遅くなる可能性があり、#12（O-13）と性能要件（NFR-2）に関わる。upper の中身は今回見ていない
+- `redirect_dir=nofollow` なので、下の層にあるディレクトリの rename は `EXDEV` になる（2026-09-26、Go の agent で確認。[guest-phase1.md](./guest-phase1.md) §3）。`mv` はコピーと削除で代わりにやるので、ビューは一致するが upper にはディレクトリ全体のコピーが入る。大きなディレクトリの rename が遅くなりうるので、#12（O-13）と性能要件（NFR-2）に関わる
+- GitHub Actions の Ubuntu 24.04 では非特権ユーザー名前空間が使えない（`apparmor_restrict_unprivileged_userns = 1`）。CI で期待値を取り直すなら、`sudo` を使うか最小ゲストの中で記録する
 
 期待値は **このカーネルとオプションでの結果** であり、#12 で固定する mount オプションと最低カーネルバージョンが決まったら取り直す（`record-kernel.mjs` の `MOUNT_OPTS`）。
 
