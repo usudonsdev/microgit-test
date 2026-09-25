@@ -35,6 +35,11 @@ jobs:
           npm run compile
           npm run lint
 
+      # 4.5 OverlayFS ゴールデンテスト（Node 実装とカーネルの食い違いが既知の一覧どおりか）
+      # 期待値は記録済みのファイルを読むだけなので、ここでは mount しない（docs/overlayfs-golden-test.md）
+      - name: OverlayFS Golden Test (Node fallback)
+        run: node scripts/golden/check-node.mjs
+
       # 5. 【超重要】仮想画面（Xvfb）を使ってテストを実行
       # Linuxサーバーには画面がないため、xvfb-run を噛ませてVS Code（GUIアプリ）を騙して起動します
       - name: Run Tests

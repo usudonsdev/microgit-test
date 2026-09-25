@@ -27,3 +27,5 @@ books/**
 **/*.vsix
 out/test/**
 src/test/**
+test/**
+scripts/golden/**

@@ -33,4 +33,7 @@ OS mount は使わない。Node.js だけで OverlayFS 意味論を実装し、
 
 ```bash
 ./scripts/overlay-smoke.sh
+npm run golden:check   # カーネルの OverlayFS との突き合わせ（overlayfs-golden-test.md）
 ```
+
+カーネルと食い違う既知の点（空ディレクトリ、ファイルとディレクトリの置き換え、`.wh.` で始まるファイル名）は [overlayfs-golden-test.md](./overlayfs-golden-test.md) §4 を参照。

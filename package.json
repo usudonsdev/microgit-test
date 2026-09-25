@@ -102,7 +102,9 @@
     "test": "node ./out/test/runTest.js",
     "package": "vsce package",
     "publish": "vsce publish",
-    "bench": "npm run compile && node scripts/speed-bench.mjs"
+    "bench": "npm run compile && node scripts/speed-bench.mjs",
+    "golden:record": "node scripts/golden/record-kernel.mjs",
+    "golden:check": "npm run compile && node scripts/golden/check-node.mjs"
   },
   "devDependencies": {
     "@types/mocha": "^10.0.10",
