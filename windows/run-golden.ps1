@@ -1,0 +1,57 @@
+﻿# Windows で最小ゲスト（x86_64）を QEMU で起動し、ゴールデンテストを流す（Issue #18）。
+#
+# PowerShell 5.1 は BOM の無い UTF-8 を Shift_JIS として読むので、このファイルは BOM 付き UTF-8 で保存する。
+# 使い方: powershell -ExecutionPolicy Bypass -File windows\run-golden.ps1 [-Accel auto|whpx|tcg]
+#   QEMU は環境変数 QEMU（qemu-system-x86_64.exe のパス）、PATH、既定のインストール先の順に探す。
+#   guest\out\x86_64\Image が無ければ、GitHub Actions の最新の成功した Guest ワークフローから取ってくる（gh が要る）。
+#
+# -Accel auto は WHPX（Windows ハイパーバイザー プラットフォーム）を先に試し、使えなければ TCG（エミュレーション）で動かす。
+# QEMU は -accel を複数並べると前から順に試す。
+param(
+    [ValidateSet('auto', 'whpx', 'tcg')]
+    [string]$Accel = 'auto'
+)
+$ErrorActionPreference = 'Stop'
+$Root = Split-Path -Parent $PSScriptRoot
+$Out = Join-Path $Root 'guest\out\x86_64'
+$Image = Join-Path $Out 'Image'
+
+$Qemu = $env:QEMU
+if (-not $Qemu) {
+    $cmd = Get-Command qemu-system-x86_64.exe -ErrorAction SilentlyContinue
+    if ($cmd) { $Qemu = $cmd.Source }
+}
+if (-not $Qemu) { $Qemu = 'C:\Program Files\qemu\qemu-system-x86_64.exe' }
+if (-not (Test-Path $Qemu)) {
+    throw "QEMU が見つからない。環境変数 QEMU に qemu-system-x86_64.exe のパスを入れる"
+}
+
+if (-not (Test-Path $Image)) {
+    $branch = (git -C $Root rev-parse --abbrev-ref HEAD).Trim()
+    $runId = (gh run list -R usudonsdev/microgit-test -w guest.yml -b $branch -s success -L 1 --json databaseId -q '.[0].databaseId')
+    if (-not $runId) { throw "成功した Guest ワークフローが $branch にない" }
+    Write-Host "downloading Image from run $runId"
+    New-Item -ItemType Directory -Force $Out | Out-Null
+    gh run download $runId -R usudonsdev/microgit-test -n microgit-guest-x86_64 -D $Out
+    if ($LASTEXITCODE -ne 0) { throw "gh run download failed" }
+}
+
+# kernel-irqchip=off: QEMU の WHPX では割り込みコントローラを QEMU 側で持つ（外した場合は未確認）
+$accelArgs = switch ($Accel) {
+    'whpx' { @('-accel', 'whpx,kernel-irqchip=off') }
+    'tcg' { @('-accel', 'tcg') }
+    default { @('-accel', 'whpx,kernel-irqchip=off', '-accel', 'tcg') }
+}
+$qemuArgs = @('-M', 'q35') + $accelArgs + @(
+    '-cpu', 'max', '-smp', '1', '-m', '256',
+    '-nodefaults', '-display', 'none', '-no-reboot',
+    '-kernel', $Image, '-append', 'console=hvc0',
+    '-device', 'virtio-serial-pci',
+    '-chardev', "file,id=con,path=$(Join-Path $Out "console-windows-$Accel.log")",
+    '-device', 'virtconsole,chardev=con',
+    '-chardev', 'stdio,id=proto,signal=off',
+    '-device', 'virtserialport,chardev=proto,name=microgit'
+)
+
+node (Join-Path $Root 'scripts\golden\check-guest.mjs') --json (Join-Path $Out "guest-result-windows-$Accel.json") -- $Qemu @qemuArgs
+exit $LASTEXITCODE

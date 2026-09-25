@@ -31,3 +31,4 @@ test/**
 scripts/golden/**
 guest/**
 mac/**
+windows/**
