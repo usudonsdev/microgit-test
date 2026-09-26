@@ -5,6 +5,7 @@
  * 使い方: npm run compile && node scripts/test/kernel-backend-e2e.mjs [--max-depth N] -- <agent を起動するコマンド...>
  *         npm run compile && node scripts/test/kernel-backend-e2e.mjs [--max-depth N] --plan
  *   --plan: 拡張機能と同じ起動計画（src/kernel/launchers.ts の planLaunch）で、リポジトリのビルド結果から起動する。
+ *           --accel auto|whpx|tcg で Windows の QEMU の動かし方を指定できる（設定 microgit.kernel.accel と同じ）。
  *           Windows なら QEMU（名前付きパイプ）、Linux なら unshare -Urm。拡張機能と同じ経路を試せる
  *   <コマンド> の stdin/stdout が agent の命令の通り道になるもの（check-guest.mjs と同じ）。
  *     WSL2:      wsl.exe -e unshare -Urm /mnt/c/.../guest/out/x86_64/init
@@ -43,7 +44,8 @@ if (opts.includes('--plan')) {
     const exists = (p) => fs.existsSync(p);
     const plan = planLaunch({
         platform: process.platform, arch: process.arch, osRelease: os.release(), extensionPath: ROOT, env: process.env,
-        settings: {}, logDir: os.tmpdir(), exists, which: (c) => findInPath(c, process.env, process.platform, exists),
+        settings: opts.includes('--accel') ? { accel: opts[opts.indexOf('--accel') + 1] } : {},
+        logDir: os.tmpdir(), exists, which: (c) => findInPath(c, process.env, process.platform, exists),
     });
     if (!plan.ok) { console.error(`起動の計画が立たない: ${plan.reason}`); process.exit(2); }
     spec = plan.spec;

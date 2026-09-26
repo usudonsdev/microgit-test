@@ -31,6 +31,21 @@ echo "$QEMU_SHA256  $tarball" | sha256sum -c -
 src="$CACHE/qemu-$QEMU_VERSION"
 [[ -d "$src" ]] || tar -xJf "$tarball" -C "$CACHE"
 
+# 装置を絞る（既定: 絞る）。QEMU の既定では x86_64 のあらゆる装置（NIC、音声、USB など）が入り、
+# 実行ファイルが 24.5 MB になった（2026-09-26）。MicroGit の最小ゲストが使うのは q35 のマシンと virtio のシリアルだけ。
+# 装置の一覧（Kconfig）は、ソースの configs/devices/x86_64-softmmu/ に microgit.mak を足して指定する
+# （Kconfig の select で、q35 に要るものは自動で入る）。MINIMAL_DEVICES=0 で QEMU の既定に戻せる
+device_args=()
+if [[ "${MINIMAL_DEVICES:-1}" == 1 ]]; then
+    cat > "$src/configs/devices/x86_64-softmmu/microgit.mak" <<'MAK'
+# MicroGit の最小ゲスト用（windows/qemu/build.sh が書く）
+CONFIG_Q35=y
+CONFIG_VIRTIO_PCI=y
+CONFIG_VIRTIO_SERIAL=y
+MAK
+    device_args=(--without-default-devices --with-devices-x86_64=microgit)
+fi
+
 echo "== configure"
 build="$OUT/build"
 mkdir -p "$build"
@@ -45,7 +60,7 @@ cd "$build"
     --disable-capstone --disable-gnutls --disable-nettle --disable-gcrypt \
     --disable-png --disable-zstd --disable-lzo --disable-snappy --disable-bzip2 \
     --disable-libssh --disable-brlapi --disable-curses --disable-iconv \
-    --audio-drv-list= --disable-plugins --disable-debug-info --disable-werror
+    --audio-drv-list= --disable-plugins --disable-debug-info --disable-werror     "${device_args[@]}"
 
 echo "== build"
 make -j"$(nproc)" qemu-system-x86_64.exe
@@ -78,7 +93,7 @@ for fw in bios-256k.bin linuxboot_dma.bin kvmvapic.bin; do
 done
 
 {
-    echo "qemu        $QEMU_VERSION (x86_64-softmmu, whpx+tcg)"
+    echo "qemu        $QEMU_VERSION (x86_64-softmmu, whpx+tcg, devices=$([[ "${MINIMAL_DEVICES:-1}" == 1 ]] && echo microgit || echo default))"
     echo "exe         $(stat -c %s "$dest/qemu-system-x86_64.exe") bytes"
     echo "dlls        $(ls "$dest"/*.dll 2>/dev/null | wc -l) files, $(cat "$dest"/*.dll 2>/dev/null | wc -c) bytes"
     echo "share       $(cat "$dest"/share/* | wc -c) bytes"

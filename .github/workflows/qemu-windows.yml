@@ -86,8 +86,17 @@ jobs:
           mkdir -p guest/.cache
           cp -r qemu-artifact/qemu-win guest/.cache/qemu-win
           cat qemu-artifact/sizes.txt
-      # GitHub の Windows のランナーでは WHPX が使えない見込み。-accel whpx -accel tcg で TCG に切り替わるかを確かめる
-      - name: Start the kernel backend with the bundled QEMU (WHPX → TCG)
+      # 既定（-accel whpx -accel tcg）で起動できるか
+      - name: Start the kernel backend with the bundled QEMU (auto)
         run: node scripts/test/native-fallback.mjs --expect kernel
+      # WHPX だけで起動できるか（ランナーで WHPX が使えるかの記録。使えなくても失敗にしない）
+      - name: Probe WHPX only (informational)
+        continue-on-error: true
+        run: node scripts/test/native-fallback.mjs --accel whpx
+      # TCG だけ（仮想化機能も管理者権限も要らない動かし方、NFR-1）で起動でき、差分テストが通るか
+      - name: TCG only
+        run: |
+          node scripts/test/native-fallback.mjs --accel tcg --expect kernel
+          node scripts/test/kernel-backend-e2e.mjs --plan --accel tcg --max-depth 2
       - name: Kernel vs Node.js backend (e2e, named pipe)
         run: node scripts/test/kernel-backend-e2e.mjs --plan --max-depth 2
