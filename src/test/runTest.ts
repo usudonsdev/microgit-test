@@ -38,6 +38,21 @@ function vscodeCli(vscodeExecutablePath: string): { command: string; args: strin
     return { command: vscodeExecutablePath, args: [cli], env: { ...process.env, ELECTRON_RUN_AS_NODE: '1', VSCODE_DEV: '' } };
 }
 
+/**
+ * テスト用の VS Code の実行ファイル。@vscode/test-electron 2.5.2 は、Mac では
+ * 「Visual Studio Code.app/Contents/MacOS/Electron」を返すが、VS Code 1.139.1 の Mac 版にはそれが無く、
+ * 起動が ENOENT で失敗した（#19、package.yml の macos-14）。無ければ同じフォルダの実行ファイルを探す
+ */
+function resolveVSCodeExecutable(returned: string): string {
+    if (fs.existsSync(returned) || process.platform !== 'darwin') { return returned; }
+    const dir = path.dirname(returned);
+    const names = fs.existsSync(dir) ? fs.readdirSync(dir) : [];
+    const found = ['Code', 'Code - Insiders', 'Visual Studio Code'].find((n) => names.includes(n));
+    if (!found) { throw new Error(`VS Code の実行ファイルが見つからない: ${dir}（中身: ${names.join(', ') || '無し'}）`); }
+    console.log(`VS Code の実行ファイル: ${path.join(dir, found)}（test-electron が返したのは ${path.basename(returned)}）`);
+    return path.join(dir, found);
+}
+
 /** VSIX を一時的な拡張機能フォルダに入れて、入ったフォルダを返す */
 function installVsix(vscodeExecutablePath: string, vsix: string, extensionsDir: string): string {
     const cli = vscodeCli(vscodeExecutablePath);
@@ -82,7 +97,7 @@ async function main() {
 
         const extensionTestsPath = path.resolve(__dirname, './suite/index');
         const vsix = process.env.MICROGIT_TEST_VSIX;
-        const vscodeExecutablePath = await downloadAndUnzipVSCode();
+        const vscodeExecutablePath = resolveVSCodeExecutable(await downloadAndUnzipVSCode());
         let extensionDevelopmentPath = path.resolve(__dirname, '../../');
         if (vsix) {
             const extensionsDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'microgit-vsix-')), 'extensions');
