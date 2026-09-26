@@ -43,6 +43,9 @@ jobs:
         with:
           path: windows/qemu/.cache/*.tar.xz
           key: qemu-src-${{ hashFiles('windows/qemu/version.env') }}
+      # ライセンスを集めるスクリプトを、偽の rpm で先に試す（ビルドの 20 分を待たずに間違いが分かる。#19）
+      - name: Test collect-licenses.sh
+        run: bash windows/qemu/test-collect-licenses.sh
       - name: Build
         run: windows/qemu/build.sh
       - uses: actions/upload-artifact@v4
