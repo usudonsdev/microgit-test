@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - master   # 💡 masterブランチにpush（マージ）されたとき
+      - feature/kernel-portability   # 次期メジャー（カーネル機能ポータブル化）の統合ブランチ
   pull_request:
     branches:
       - master   # 💡 masterブランチへのプルリクエストが作られたとき
+      - feature/kernel-portability   # Issue ごとのブランチ（issue/*）から統合ブランチへのプルリクエスト
 
 jobs:
   test:
@@ -46,3 +48,23 @@ jobs:
         run: xvfb-run $CHROME_HEADLESS_FLAGS npm test
         env:
           CXXFLAGS: -Wno-ignored-attributes
+
+  # OverlayFS ゴールデンテストの期待値を、ランナーのカーネルで取り直して記録済みのものと比べる（Issue #10、補足 S-4）。
+  # 22.04 と 24.04 のランナーはカーネルのバージョンが違うので、バージョン差で結果が変わらないかを毎回確かめる。
+  # GitHub の Ubuntu では非特権のユーザー名前空間が AppArmor で止められているので（補足 S-3）、sudo で root として mount する。
+  golden-kernel:
+    name: OverlayFS golden on ${{ matrix.os }} kernel
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Kernel version
+        run: uname -r
+      - name: Re-record on this kernel and compare
+        run: node scripts/golden/record-kernel.mjs --check --sudo

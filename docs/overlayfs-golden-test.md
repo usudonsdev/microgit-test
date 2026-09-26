@@ -3,7 +3,7 @@
 | 項目 | 内容 |
 |---|---|
 | Issue | #10（Epic #8、Phase 0 の最初の成果物） |
-| 版 | 初版（2026-09-25）：マージ済みビューの比較のみ |
+| 版 | 第 2 版（2026-09-26）：CI での自動実行とカーネルのバージョン差の検出を追加。初版（2026-09-25）はマージ済みビューの比較のみ |
 | 関連 | [要件定義書](./microgit-kernel-feature-portability-requirements.md) FR-1・FR-2・NFR-5、[補足](./microgit-kernel-feature-portability-supplement.md) S-4・S-13、[NodeOverlay.md](./NodeOverlay.md) |
 
 ## 1. 目的
@@ -57,9 +57,23 @@ Node 実装がカーネルと食い違う点は `node-known-diffs.txt` にその
 npm run golden:check                       # どの OS でも可。CI でも実行する
 npm run golden:check -- --update-known     # 既知の一覧を今の結果で書き直す
 npm run golden:record                      # 期待値を取り直す。Linux か、WSL2 のある Windows で
+node scripts/golden/record-kernel.mjs --check          # 取り直した結果を記録済みの期待値と比べる（書き換えない）
+node scripts/golden/record-kernel.mjs --check --sudo   # 同上。非特権のユーザー名前空間が使えない Linux で、root として mount する
 ```
 
 シナリオを足したら `golden:record` → `golden:check -- --update-known` の順に流し、一覧に増えた行を §4 に分類して書く。
+
+### 3.1 CI で自動的に流れるもの（2026-09-26 から）
+
+| ワークフロー | ジョブ | 中身 |
+|---|---|---|
+| `ci.yml` | test | `check-node.mjs`：Node 実装の食い違いが既知の一覧どおりか |
+| `ci.yml` | golden-kernel（ubuntu-22.04 / ubuntu-24.04） | `record-kernel.mjs --check --sudo`：ランナーのカーネルで期待値を取り直し、記録済みのものと一致するか。2 つのランナーはカーネルのバージョンが違うので、バージョン差で結果が変わらないかを毎回確かめる（補足 S-4） |
+| `guest.yml` | guest（arm64 / x86_64） | `check-guest.mjs`：最小ゲスト（Linux 6.18.53）を QEMU で起動して 12 シナリオを流し、期待値と完全に一致するか |
+
+`ci.yml` は `master` と `feature/kernel-portability` への push とプルリクエストで、`guest.yml` はゲスト・シナリオ・期待値に関わるファイルが変わったときに動く。
+
+GitHub Actions の Ubuntu では `kernel.apparmor_restrict_unprivileged_userns = 1` で非特権のユーザー名前空間が止められている（2026-09-26 に確認、補足 S-3）。そのため CI では `sudo unshare -m` で root として mount する。mount オプションは同じ `userxattr` のままなので、非特権での記録と条件は揃っている。
 
 ## 4. 現行 Node 実装との食い違い（2026-09-25 時点、12 シナリオ中 16 ビュー）
 
@@ -97,12 +111,13 @@ Windows（Node 25）と WSL2 上の Linux（Node 22）の両方で同じ一覧�
 
 期待値は **このカーネルとオプションでの結果** であり、#12 で固定する mount オプションと最低カーネルバージョンが決まったら取り直す（`record-kernel.mjs` の `MOUNT_OPTS`）。
 
-## 6. まだ比べていないもの（次の版）
+## 6. 比べる範囲の決定（2026-09-26、#10 を閉じるときに決めた）
 
-| 項目 | 関連 |
-|---|---|
-| ホストへの反映後の一致（`syncMergeToWorkspace` の結果）。大文字小文字だけ違う名前、Windows の予約名、実行ビット、Unicode の正規化差 | 補足 S-4、#16（O-14） |
-| シンボリックリンク、実行ビット、ハードリンク、xattr | FR-1 |
-| upper の中身（whiteout・opaque・redirect の表現）とコピーアップの挙動 | #12 |
-| 複数のカーネルバージョンでの記録。GitHub Actions の ubuntu-latest では AppArmor の制限で非特権 mount が通らない見込みなので、`sudo` で記録するか別の手段が要る（未確認） | 補足 S-3・S-4、#12（O-13） |
-| 性能（レイテンシ・スループット） | #14、NFR-2 |
+| 項目 | 扱い | 理由 |
+|---|---|---|
+| ホストへの反映後の一致（大文字小文字だけ違う名前、Windows の予約名、Unicode の正規化差） | **#16（Boundary Guard）に移す** | ホストへ反映する処理そのものが Boundary Guard の責務なので、そこで Node とカーネルの両バックエンドの反映結果を比べる差分テストとして作る |
+| 複数のカーネルバージョン | **済み**（§3.1 の golden-kernel ジョブ） | — |
+| シンボリックリンク、実行ビット | **シナリオには入れない** | MicroGit が記録するのは VS Code で保存したテキスト文書だけで、shadow の作業ツリーには通常のファイルとして書かれる（`runShadowCommit` の `fs.writeFileSync`）。シンボリックリンクや実行ビットは記録される経路が無い。agent の view は `l`（リンク）と `o`（その他）を出せるので、記録の対象が広がったら足せる |
+| ハードリンク、xattr | **入れない** | 同上。Git もこれらを記録しない |
+| upper の中身（whiteout・opaque・redirect の表現）とコピーアップの挙動 | **#12 で扱う** | mount オプションを固定するときに、その影響として確かめる |
+| 性能（レイテンシ・スループット） | **#14 で扱う** | MicroGit に組み込んだ経路で測る |

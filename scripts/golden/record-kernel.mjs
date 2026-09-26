@@ -2,10 +2,14 @@
 /**
  * OverlayFS ゴールデンテストの期待値を、本物の Linux カーネルで記録する（Issue #10）。
  *
- * 使い方: node scripts/golden/record-kernel.mjs
+ * 使い方: node scripts/golden/record-kernel.mjs [--check] [--sudo]
  *   Linux:   unshare -Urm で非特権のユーザー／mount 名前空間に入って実行する（カーネル 5.11 以降）
  *   Windows: wsl.exe 経由で同じことをする（WSL2 のディストリビューションが要る）
- * 出力: test/golden/overlayfs/<scenario>.golden と meta.json
+ *   --sudo:  sudo unshare -m で root として mount する。非特権のユーザー名前空間が止められている環境
+ *            （GitHub Actions の Ubuntu 24.04 など。補足 S-3）で使う。mount オプションは同じ userxattr のまま
+ *   --check: ファイルに書かずに、記録済みの *.golden と比べる。違えば差分を出して exit 1。
+ *            別のカーネルバージョンでも同じ結果になるかを確かめる（補足 S-4）ために CI で使う
+ * 出力: test/golden/overlayfs/<scenario>.golden と meta.json（--check のときは書かない）
  *
  * コミットのモデル（要件定義書 FR-2 の初期案そのまま）:
  *   コミット i は、祖先の層を lowerdir に積み、空の upperdir に ops を書き込んで unmount したもの。
@@ -89,7 +93,9 @@ function buildScript() {
 
 function runInLinuxNamespace(script) {
     let cmd;
-    if (process.platform === 'linux') {
+    if (process.platform === 'linux' && process.argv.includes('--sudo')) {
+        cmd = ['sudo', ['unshare', '-m', 'bash', '-s']];
+    } else if (process.platform === 'linux') {
         cmd = ['unshare', ['-Urm', 'bash', '-s']];
     } else if (process.platform === 'win32') {
         cmd = ['wsl.exe', ['-e', 'unshare', '-Urm', 'bash', '-s']];
@@ -125,15 +131,54 @@ function parse(stdout) {
     return { meta, goldens };
 }
 
+const HEADER = '# scripts/golden/record-kernel.mjs が生成。手で直さない\n';
+
+/** 記録済みの期待値と比べる。違うシナリオの差分を出し、1 つでも違えば false */
+function matchesRecorded(goldens) {
+    let same = true;
+    const leftover = new Set(fs.readdirSync(OUT_DIR).filter((n) => n.endsWith('.golden')).map((n) => n.slice(0, -'.golden'.length)));
+    for (const [name, lines] of goldens) {
+        leftover.delete(name);
+        const file = path.join(OUT_DIR, `${name}.golden`);
+        // core.autocrlf=true の Windows では CRLF で取り出される
+        const want = fs.existsSync(file) ? fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n') : '';
+        const got = HEADER + lines.join('\n') + '\n';
+        if (want === got) { continue; }
+        same = false;
+        const wantSet = new Set(want.split('\n'));
+        const gotSet = new Set(got.split('\n'));
+        console.error(`[${name}] 記録済みの期待値と違う`);
+        for (const l of want.split('\n')) { if (l && !gotSet.has(l)) { console.error(`  - ${l}`); } }
+        for (const l of got.split('\n')) { if (l && !wantSet.has(l)) { console.error(`  + ${l}`); } }
+    }
+    for (const name of leftover) {
+        same = false;
+        console.error(`[${name}] 期待値のファイルはあるが、シナリオが無い`);
+    }
+    return same;
+}
+
 validateScenarios();
 const { meta, goldens } = parse(runInLinuxNamespace(buildScript()));
+
+if (process.argv.includes('--check')) {
+    const recordedMeta = JSON.parse(fs.readFileSync(path.join(OUT_DIR, 'meta.json'), 'utf8'));
+    console.log('recorded on:', { kernel: recordedMeta.kernel, writeMountOptions: recordedMeta.writeMountOptions });
+    console.log('checked on: ', meta);
+    if (!matchesRecorded(goldens)) {
+        console.error('このカーネルでは、記録済みの期待値と違う結果になった');
+        process.exit(1);
+    }
+    console.log(`OK: ${goldens.size} scenarios がこのカーネルでも記録済みの期待値どおり`);
+    process.exit(0);
+}
+
 fs.mkdirSync(OUT_DIR, { recursive: true });
 for (const name of fs.readdirSync(OUT_DIR)) {
     if (name.endsWith('.golden')) { fs.rmSync(path.join(OUT_DIR, name)); }
 }
 for (const [name, lines] of goldens) {
-    const header = '# scripts/golden/record-kernel.mjs が生成。手で直さない\n';
-    fs.writeFileSync(path.join(OUT_DIR, `${name}.golden`), header + lines.join('\n') + '\n');
+    fs.writeFileSync(path.join(OUT_DIR, `${name}.golden`), HEADER + lines.join('\n') + '\n');
 }
 fs.writeFileSync(
     path.join(OUT_DIR, 'meta.json'),
