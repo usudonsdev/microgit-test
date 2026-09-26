@@ -204,6 +204,45 @@ console.log('7. 形式 v1 のキャッシュを捨てる');
   check('v2 になった後は捨てない', fs.existsSync(path.join(paths.layers, 'f'.repeat(40), 'x.txt')));
 }
 
+// ---------------------------------------------------------------- 8
+console.log('8. ワークスペースへの同期でファイル ⇔ ディレクトリを置き換える（N-7、#14 の差分テストで発見）');
+{
+  const ws = path.join(tmpRoot, 'sync');
+  const paths = o.ensureOverlayDirs(ws);
+  const safe = (rel) => !!rel && !path.isAbsolute(rel) && !rel.split('/').includes('..');
+  const artifact = (abs, root) => abs.startsWith(path.join(root, '.microgit_'));
+  const managed = ['p', 'p/q.txt', 'dir', 'dir/x.txt'];
+  const [a1, a2, a3] = ['5', '6', '7'].map((c) => c.repeat(40));
+  writeLayer(paths, a1, { p: 'file', 'dir/x.txt': 'X' });
+  writeLayer(paths, a2, { p: null, 'p/q.txt': 'Q', 'dir/x.txt': null, dir: 'now a file' });
+  o.expandViewAfterExport(paths, a1, undefined);
+  o.expandViewAfterExport(paths, a2, a1);
+  o.checkoutLayers(paths, [a1], 'mb-1');
+  o.syncMergeToWorkspace(ws, paths, safe, artifact, managed);
+  check('a1: p はファイル、dir/x.txt がある', fs.statSync(path.join(ws, 'p')).isFile() && fs.existsSync(path.join(ws, 'dir', 'x.txt')));
+  let threw;
+  let r2;
+  try {
+    o.checkoutLayers(paths, [a1, a2], 'mb-1');
+    r2 = o.syncMergeToWorkspace(ws, paths, safe, artifact, managed);
+  } catch (e) {
+    threw = e;
+  }
+  check('a2 へ: 例外にならない（以前は mkdir が EEXIST）', !threw, threw?.message);
+  check('a2 へ: 置けないものは無い', r2 && r2.conflicts.length === 0, JSON.stringify(r2?.conflicts));
+  check('a2: p はディレクトリ、dir はファイル', !threw && fs.statSync(path.join(ws, 'p')).isDirectory() && fs.statSync(path.join(ws, 'dir')).isFile());
+  o.checkoutLayers(paths, [a1], 'mb-1');
+  o.syncMergeToWorkspace(ws, paths, safe, artifact, managed);
+  check('a1 へ戻る: p はファイル、dir はディレクトリ', fs.statSync(path.join(ws, 'p')).isFile() && fs.statSync(path.join(ws, 'dir')).isDirectory());
+  fs.mkdirSync(path.join(ws, 'userdir'));
+  fs.writeFileSync(path.join(ws, 'userdir', 'mine.txt'), 'keep');
+  writeLayer(paths, a3, { userdir: 'file from history' });
+  o.expandViewAfterExport(paths, a3, a1);
+  o.checkoutLayers(paths, [a1, a3], 'mb-1');
+  const r3 = o.syncMergeToWorkspace(ws, paths, safe, artifact, managed);
+  check('利用者のファイルがあるディレクトリは置き換えずに conflicts で知らせる', r3.conflicts.includes('userdir') && fs.existsSync(path.join(ws, 'userdir', 'mine.txt')), JSON.stringify(r3.conflicts));
+}
+
 o.removeTree(tmpRoot);
 if (failures) {
   console.error(`\n${failures} 件失敗`);
