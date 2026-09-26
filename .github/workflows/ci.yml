@@ -42,6 +42,10 @@ jobs:
       - name: OverlayFS Golden Test (Node fallback)
         run: node scripts/golden/check-node.mjs
 
+      # 4.6 Node 版 Overlay のスモークテスト（レイヤ形式 v2、#21 で直した N-3〜N-6 の回帰テスト）
+      - name: Node Overlay Smoke Test
+        run: node scripts/overlay-smoke.mjs
+
       # 5. 【超重要】仮想画面（Xvfb）を使ってテストを実行
       # Linuxサーバーには画面がないため、xvfb-run を噛ませてVS Code（GUIアプリ）を騙して起動します
       - name: Run Tests

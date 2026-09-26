@@ -19,33 +19,7 @@
 [rename-dir] commit 3 (rebuilt)
 + d	d
 + d	d/sub
-[file-to-dir] commit 2 (saved)
-+ ! error
-- d	p
-- f	p/q.txt	4ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260
-[file-to-dir] commit 2 (rebuilt)
-+ f	p	4092bfbae6ec1f1aa683b9e58702164202f42b486d0b8aeccb94d832454e5b6e
-- d	p
-- f	p/q.txt	4ae81572f06e1b88fd5ced7a1a000945432e83e1551e6f721ee9c00b8cc33260
-[dir-to-file] commit 2 (saved)
-+ ! error
-- f	p	3b9c358f36f0a31b6ad3e14f309c7cf198ac9246e8316f9ce543d5b19ac02b80
-[dir-to-file] commit 2 (rebuilt)
-+ ! error
-- f	p	3b9c358f36f0a31b6ad3e14f309c7cf198ac9246e8316f9ce543d5b19ac02b80
 [empty-dir] commit 1 (saved)
 - d	empty
 [empty-dir] commit 1 (rebuilt)
 - d	empty
-[whiteout-lookalike-name] commit 1 (saved)
-- f	.wh.note.txt	57a2167ed76e8752cd462f715464c1a86b10cc7ba43d71a996a9cc78037349bb
-[whiteout-lookalike-name] commit 1 (rebuilt)
-- f	.wh.note.txt	57a2167ed76e8752cd462f715464c1a86b10cc7ba43d71a996a9cc78037349bb
-[whiteout-lookalike-name] commit 2 (saved)
-- f	.wh.note.txt	57a2167ed76e8752cd462f715464c1a86b10cc7ba43d71a996a9cc78037349bb
-- d	d
-- f	d/.wh.x	fcb5f40df9be6bae66c1d77a6c15968866a9e6cbd7314ca432b019d17392f6f4
-[whiteout-lookalike-name] commit 2 (rebuilt)
-- f	.wh.note.txt	57a2167ed76e8752cd462f715464c1a86b10cc7ba43d71a996a9cc78037349bb
-- d	d
-- f	d/.wh.x	fcb5f40df9be6bae66c1d77a6c15968866a9e6cbd7314ca432b019d17392f6f4
