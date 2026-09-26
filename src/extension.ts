@@ -32,6 +32,7 @@ import {
     parseMainHeadFromMessage,
 } from './mainHead';
 import { MicroGitUi, MicroGitUiSnapshot } from './ui';
+import { durabilityGitArgs, getDurability, setDurability } from './durability';
 
 const STATE_ENABLED = 'microgit.enabled';
 const STATE_TARGET_BRANCH = 'microgit.targetBranch';
@@ -62,6 +63,17 @@ export function activate(context: vscode.ExtensionContext) {
     extensionContext = context;
     ExtensionLogger.initialize('MicroGit Output');
     ExtensionLogger.log('MicroGit 拡張機能が起動しました');
+
+    setDurability(vscode.workspace.getConfiguration().get('microgit.durability'));
+    ExtensionLogger.log(`マイクロ履歴の永続性: ${getDurability()}`);
+    context.subscriptions.push(
+        vscode.workspace.onDidChangeConfiguration((e) => {
+            if (e.affectsConfiguration('microgit.durability')) {
+                setDurability(vscode.workspace.getConfiguration().get('microgit.durability'));
+                ExtensionLogger.log(`マイクロ履歴の永続性を変更: ${getDurability()}`);
+            }
+        })
+    );
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
     statusBarItem.name = 'MicroGit';
@@ -688,7 +700,8 @@ function runGit(
 ): string {
     // core.quotepath=false: 既定（true）では --name-only などが日本語などのパスを "\343\203\241..." のように
     // エスケープして出し、それをパスとして使うと別のファイルを指してしまう（#21 の N-6）
-    return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
+    // durabilityGitArgs: 保存の記録（commit-tree・update-ref など）を、設定した永続性の水準で書く（#11 の O-11）
+    return execFileSync('git', ['-c', 'core.quotepath=false', ...durabilityGitArgs(), ...args], {
         cwd,
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],

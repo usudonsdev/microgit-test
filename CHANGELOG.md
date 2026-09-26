@@ -11,6 +11,9 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 - `.wh.` で始まる名前のファイルが Overlay のビューから消える不具合を修正（N-5）
 - 1 MiB を超えるファイルが Overlay のレイヤに入らない不具合を修正（`git show` の出力が execFileSync の既定の上限を超えていた）
 
+### Added
+- 設定 `microgit.durability`（`power` が既定）。マイクロ履歴の Git のオブジェクトと ref を fsync し、電源断や OS の異常終了でも記録済みの履歴を失わないようにする。`process` で従来どおり（Git の既定）に戻せる（#11、docs/adr/0002-durability.md）
+
 ### Changed
 - Overlay のレイヤ形式を v2 にした。whiteout を層の中の `.wh.*` ファイルではなく、層の外のメタデータ（`layers/<hash>.json`）に持つ。古い形式のキャッシュ（`.microgit_overlay/layers`・`views`・`write`）は初回に自動で捨てて作り直す。履歴（shadow の Git）は変わらない
 

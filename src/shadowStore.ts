@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import { durabilityGitArgs } from './durability';
 
 export function sanitizeBranchKey(branch: string): string {
     return branch.replace(/[^a-zA-Z0-9._-]/g, '_');
@@ -19,7 +20,8 @@ export function parentMicroRefPrefix(mainBranch: string): string {
 }
 
 function runGitDir(gitDir: string, args: string[], workTree?: string): string {
-    const fullArgs = ['--git-dir', gitDir, ...(workTree ? ['--work-tree', workTree] : []), ...args];
+    // shadow の bare への書き込み（update-ref など）も、設定した永続性の水準で行う（#11 の O-11）
+    const fullArgs = [...durabilityGitArgs(), '--git-dir', gitDir, ...(workTree ? ['--work-tree', workTree] : []), ...args];
     return execFileSync('git', fullArgs, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],

@@ -89,6 +89,19 @@
           "type": "boolean",
           "default": true,
           "description": "Node.js ユーザー空間 Overlay checkout を有効化（兄弟ブランチのファイル隔離）。オフで従来の git show 同期に戻す。"
+        },
+        "microgit.durability": {
+          "type": "string",
+          "enum": [
+            "power",
+            "process"
+          ],
+          "enumDescriptions": [
+            "電源断や OS の異常終了でも、記録済みのマイクロ履歴を失わない（Git のオブジェクトと ref を fsync する）。保存 1 回あたり数 ms 遅くなる",
+            "VS Code や拡張機能が落ちても失わないが、電源断や OS の異常終了では直前の記録を失うことがある（Git の既定のまま）"
+          ],
+          "default": "power",
+          "description": "マイクロ履歴をどこまで確実にディスクへ書くか（docs/adr/0002-durability.md）"
         }
       }
     }
@@ -103,6 +116,7 @@
     "package": "vsce package",
     "publish": "vsce publish",
     "bench": "npm run compile && node scripts/speed-bench.mjs",
+    "test:unit": "npm run compile && node scripts/run-unit-tests.mjs",
     "test:overlay": "npm run compile && node scripts/overlay-smoke.mjs",
     "golden:record": "node scripts/golden/record-kernel.mjs",
     "golden:check": "npm run compile && node scripts/golden/check-node.mjs"
