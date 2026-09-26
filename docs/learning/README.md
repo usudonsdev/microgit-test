@@ -18,6 +18,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | [06](./06-boundary-guard.md) | 信用しない相手からファイルを受け取る（パストラバーサル、.git を狙う攻撃、名前のゆらぎ、半端な状態を残さない） | #16 | `src/boundaryGuard.ts` |
 | [07](./07-backend-selection-and-ipc.md) | 使えるものを選び、だめなら戻る／プロセス間のデータの通り道／差分テストが不具合を見つける | #14 | `src/kernel/`、`scripts/test/` |
 | [08](./08-cross-compiling-qemu.md) | 別の OS 向けにビルドする（クロスコンパイル）／実行ファイルが頼る部品を集める | #18 | `windows/qemu/`、`.github/workflows/qemu-windows.yml` |
+| [09](./09-requirements-traceability.md) | 要件と実装をつなぐ（追跡）／決めたことを残す（ADR）／レビューの指摘を閉じる | #9 | 要件定義書（第 2 版）、`docs/adr/` |
 
 各回の構成：
 
