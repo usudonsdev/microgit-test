@@ -11,6 +11,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | 回 | テーマ | 関係する Issue | 実装 |
 |---|---|---|---|
 | [01](./01-golden-testing-and-namespaces.md) | テストの正解をどこから持ってくるか／名前空間で安全に mount する | #10 | `scripts/golden/`、`.github/workflows/ci.yml` |
+| [02](./02-git-objects-and-layer-format.md) | Git のオブジェクトと出力形式／whiteout の表し方／不具合の切り分け方 | #21 | `src/overlay.ts`、`scripts/overlay-smoke.mjs` |
 
 各回の構成：
 

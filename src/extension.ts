@@ -686,7 +686,9 @@ function runGit(
     args: string[],
     options?: { env?: NodeJS.ProcessEnv }
 ): string {
-    return execFileSync('git', args, {
+    // core.quotepath=false: 既定（true）では --name-only などが日本語などのパスを "\343\203\241..." のように
+    // エスケープして出し、それをパスとして使うと別のファイルを指してしまう（#21 の N-6）
+    return execFileSync('git', ['-c', 'core.quotepath=false', ...args], {
         cwd,
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe'],

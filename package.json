@@ -103,6 +103,7 @@
     "package": "vsce package",
     "publish": "vsce publish",
     "bench": "npm run compile && node scripts/speed-bench.mjs",
+    "test:overlay": "npm run compile && node scripts/overlay-smoke.mjs",
     "golden:record": "node scripts/golden/record-kernel.mjs",
     "golden:check": "npm run compile && node scripts/golden/check-node.mjs"
   },

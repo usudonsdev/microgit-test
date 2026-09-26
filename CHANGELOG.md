@@ -5,6 +5,15 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- 日本語など ASCII 以外の名前のファイルが、Git の既定設定（`core.quotepath=true`）の環境で Overlay のレイヤに入らず、過去に戻っても中身が復元されない不具合を修正（#21 の N-6）
+- ファイルを同じ名前のディレクトリに置き換えて保存すると、レイヤの書き出しが例外で止まり、壊れたファイルが残る不具合を修正（N-3）
+- ディレクトリを同じ名前のファイルに置き換えると、保存時・過去に戻る時に例外になる不具合を修正（N-4）
+- `.wh.` で始まる名前のファイルが Overlay のビューから消える不具合を修正（N-5）
+- 1 MiB を超えるファイルが Overlay のレイヤに入らない不具合を修正（`git show` の出力が execFileSync の既定の上限を超えていた）
+
+### Changed
+- Overlay のレイヤ形式を v2 にした。whiteout を層の中の `.wh.*` ファイルではなく、層の外のメタデータ（`layers/<hash>.json`）に持つ。古い形式のキャッシュ（`.microgit_overlay/layers`・`views`・`write`）は初回に自動で捨てて作り直す。履歴（shadow の Git）は変わらない
+
 - `MicroGit: Fetch Micro History` が、ローカルの未 publish なマイクロ履歴を警告なしに上書き消去しうる欠陥を修正
 - `importFromParentRefs` は incoming を一時 ref で受けてから祖先判定し、fast-forward のときだけ tip を前進。発散時は tip に触れず新規 `mb-N` タグとして分岐追加するのみ（マージはしない方針、`docs/design-policy.md` §4.1）
 
