@@ -42,6 +42,10 @@ jobs:
       - name: OverlayFS Golden Test (Node fallback)
         run: node scripts/golden/check-node.mjs
 
+      # 4.55 VS Code を起動しない単体テスト（src/test/unit、node:test）
+      - name: Unit Tests
+        run: node scripts/run-unit-tests.mjs
+
       # 4.6 Node 版 Overlay のスモークテスト（レイヤ形式 v2、#21 で直した N-3〜N-6 の回帰テスト）
       - name: Node Overlay Smoke Test
         run: node scripts/overlay-smoke.mjs
