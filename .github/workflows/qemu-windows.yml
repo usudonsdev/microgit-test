@@ -93,6 +93,9 @@ jobs:
       - name: Probe WHPX only (informational)
         continue-on-error: true
         run: node scripts/test/native-fallback.mjs --accel whpx
+      # 先頭のアクセラレータが使えないとき TCG に切り替わるか（ランナーでは WHPX が使えるので、Windows に無い KVM で代わりに確かめる）
+      - name: Accelerator fallback (kvm → tcg)
+        run: node scripts/test/qemu-accel-fallback.mjs
       # TCG だけ（仮想化機能も管理者権限も要らない動かし方、NFR-1）で起動でき、差分テストが通るか
       - name: TCG only
         run: |
