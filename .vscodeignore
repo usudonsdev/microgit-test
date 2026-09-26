@@ -28,8 +28,15 @@ books/**
 out/test/**
 src/test/**
 test/**
-scripts/golden/**
 guest/**
 mac/**
 windows/**
-scripts/guest/**
+# 開発用のスクリプト（ベンチ・スモーク・テスト・VSIX 作り）は配らない（#19）
+scripts/**
+# エージェント向けの作業メモは配らない
+AGENTS.md
+CLAUDE.md
+package-lock.json
+dist/**
+.cache/**
+# 同梱の部品（resources/kernel）は scripts/package-vsix.mjs がターゲットごとに置く。ここでは外さない
