@@ -15,6 +15,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | [03](./03-source-of-truth-and-durability.md) | 正本とキャッシュ／「保存した」はどこまで確かか（fsync）／コンパクション | #11 | `src/durability.ts`、`docs/adr/` |
 | [04](./04-protocol-and-mount-options.md) | 2 つのプログラムのあいだの約束（プロトコル）／mount オプション／層の中を覗く | #12 | `guest/agent/`、`docs/agent-protocol.md` |
 | [05](./05-reproducible-builds.md) | 再現可能なビルド：同じソースから、同じバイト列を | #15 | `guest/build.sh`、`guest/kernel/version.env` |
+| [06](./06-boundary-guard.md) | 信用しない相手からファイルを受け取る（パストラバーサル、.git を狙う攻撃、名前のゆらぎ、半端な状態を残さない） | #16 | `src/boundaryGuard.ts` |
 
 各回の構成：
 
