@@ -21,8 +21,9 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-24.04
-    # QEMU 自身の CI（fedora-win64-cross）と同じく、Fedora の MinGW のパッケージでクロスビルドする
-    container: fedora:42
+    # QEMU 自身の CI（fedora-win64-cross）と同じく、Fedora の MinGW のパッケージでクロスビルドする。
+    # Fedora 42 の MinGW のヘッダーには QEMU 11.1 の WHPX が使う WHvCapabilityCodeVmx* が無く、コンパイルに失敗した（2026-09-26）
+    container: fedora:44
     timeout-minutes: 90
     steps:
       - name: Install build tools
@@ -31,6 +32,10 @@ jobs:
             git make gcc python3 ninja-build bzip2 xz tar diffutils findutils perl curl \
             mingw64-gcc mingw64-glib2 mingw64-pixman mingw64-zlib mingw64-pkg-config mingw64-binutils
       - uses: actions/checkout@v4
+      - name: Toolchain versions
+        run: |
+          cat /etc/fedora-release
+          rpm -q mingw64-headers mingw64-gcc mingw64-glib2
       - name: Cache QEMU source
         uses: actions/cache@v4
         with:
