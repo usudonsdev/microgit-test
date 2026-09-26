@@ -183,18 +183,24 @@ function checkVsix(file, layout) {
     for (const f of layout.expect) {
         if (!names.has(`extension/resources/kernel/${f}`)) { problems.push(`無い: resources/kernel/${f}`); }
     }
-    // 配ってはいけないもの：ソース、開発用のスクリプトとテスト、ゲストのビルド一式、他のターゲットの部品
-    const forbidden = [/^extension\/src\//, /^extension\/scripts\//, /^extension\/guest\//, /^extension\/mac\//, /^extension\/windows\//,
-        /^extension\/docs\//, /^extension\/test\//, /^extension\/out\/test\//, /^extension\/node_modules\//, /^extension\/\.github\//,
-        /^extension\/AGENTS\.md$/, /^extension\/CLAUDE\.md$/, /\.map$/,
-        // 点で始まるフォルダ（.cache、.vscode-test などの作業用の置き場所）
-        /^extension\/\.[^/]+\//];
+    // 入ってよいものの一覧（それ以外はすべて問題）。以前は「入っていてはいけないもの」の一覧で確かめていたが、
+    // CI で成果物を落としたフォルダ（artifacts/、GCC のソース RPM など 140 MB）が入ったのを見逃した（#19）
+    const allowed = [
+        /^\[Content_Types\]\.xml$/, /^extension\.vsixmanifest$/,
+        /^extension\/(package\.json|readme\.md|changelog\.md|LICENCE\.md|THIRD_PARTY_NOTICES\.md)$/,
+        /^extension\/media\/[^/]+\.svg$/,
+        /^extension\/out\/(kernel\/)?[^/]+\.js$/,
+        /^extension\/resources\/kernel\//,
+    ];
     const allowedTop = new Set(layout.expect.map((f) => f.split('/')[0]).concat(layout.expect.length ? ['licenses'] : []));
     for (const e of entries) {
-        if (forbidden.some((re) => re.test(e.name))) { problems.push(`入っていてはいけない: ${e.name}`); }
+        if (!allowed.some((re) => re.test(e.name))) { problems.push(`入ってよいものの一覧に無い: ${e.name}`); }
         const m = /^extension\/resources\/kernel\/([^/]+)\//.exec(e.name);
         if (m && !allowedTop.has(m[1])) { problems.push(`他のターゲットの部品: ${e.name}`); }
     }
+    // 同梱の部品を除いた拡張機能そのもの（out、README など）は 1 MB に収まるはず（2026-09-26 に約 0.3 MB）
+    const extensionBytes = entries.filter((e) => !e.name.startsWith('extension/resources/kernel/')).reduce((a, e) => a + e.size, 0);
+    if (extensionBytes > 1_000_000) { problems.push(`同梱の部品を除いた中身が大きすぎる: ${extensionBytes} バイト`); }
     for (const f of layout.executables) {
         const e = entries.find((x) => x.name === `extension/resources/kernel/${f}`);
         if (!e || e.mode === undefined || (e.mode & 0o111) !== 0o111) {

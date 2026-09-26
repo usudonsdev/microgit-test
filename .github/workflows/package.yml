@@ -52,15 +52,16 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      # 成果物はリポジトリの外に落とす。リポジトリの中（artifacts/）に落としたら、GCC のソース RPM などが VSIX に入った（#19）
       - uses: actions/download-artifact@v4
         with:
           pattern: microgit-*
-          path: artifacts
+          path: ${{ runner.temp }}/artifacts
       - name: Artifacts
-        run: find artifacts -maxdepth 3 | sort
+        run: find "$RUNNER_TEMP/artifacts" -maxdepth 3 | sort
       # VSIX は Linux で作る（Windows で作ると実行ビットが落ちる。vsce の文書）
       - name: Package each target
-        run: node scripts/package-vsix.mjs --artifacts artifacts --out dist
+        run: node scripts/package-vsix.mjs --artifacts "$RUNNER_TEMP/artifacts" --out dist
       - uses: actions/upload-artifact@v4
         with:
           name: vsix
