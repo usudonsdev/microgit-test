@@ -2,7 +2,7 @@
 #
 # PowerShell 5.1 は BOM の無い UTF-8 を Shift_JIS として読むので、このファイルは BOM 付き UTF-8 で保存する。
 # 使い方: powershell -ExecutionPolicy Bypass -File windows\run-golden.ps1 [-Accel auto|whpx|tcg]
-#   QEMU は環境変数 QEMU（qemu-system-x86_64.exe のパス）、PATH、既定のインストール先の順に探す。
+#   QEMU は環境変数 QEMU（qemu-system-x86_64.exe のパス）、PATH、guest\.cache\qemu-win、既定のインストール先の順に探す。
 #   guest\out\x86_64\Image が無ければ、GitHub Actions の最新の成功した Guest ワークフローから取ってくる（gh が要る）。
 #
 # -Accel auto は WHPX（Windows ハイパーバイザー プラットフォーム）を先に試し、使えなければ TCG（エミュレーション）で動かす。
@@ -25,6 +25,11 @@ $Qemu = $env:QEMU
 if (-not $Qemu) {
     $cmd = Get-Command qemu-system-x86_64.exe -ErrorAction SilentlyContinue
     if ($cmd) { $Qemu = $cmd.Source }
+}
+if (-not $Qemu) {
+    # 開発用に配布版から必要なファイルだけを抜き出して置いた場所（Git の管理外）
+    $local = Join-Path $Root 'guest\.cache\qemu-win\qemu-system-x86_64.exe'
+    if (Test-Path $local) { $Qemu = $local }
 }
 if (-not $Qemu) { $Qemu = 'C:\Program Files\qemu\qemu-system-x86_64.exe' }
 if (-not (Test-Path $Qemu)) {
