@@ -19,6 +19,26 @@ on:
   workflow_dispatch:
 
 jobs:
+  # agent の命令の形 v1 の単体テスト（guest/agent/agent_test.go、#12）。本物の OverlayFS を mount するので root で流す。
+  # GitHub の Ubuntu では非特権のユーザー名前空間が AppArmor で止められているため、テストの実行ファイルを作って sudo で動かす。
+  agent-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: guest/agent/go.mod
+          cache: false
+      - name: Vet
+        working-directory: guest/agent
+        run: go vet ./...
+      - name: Test as root (mounts OverlayFS)
+        working-directory: guest/agent
+        run: |
+          go test -c -o "$RUNNER_TEMP/agent.test" .
+          sudo "$RUNNER_TEMP/agent.test" -test.v
+
   guest:
     runs-on: ubuntu-24.04
     timeout-minutes: 30

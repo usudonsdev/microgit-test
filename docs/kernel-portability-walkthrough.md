@@ -65,11 +65,13 @@ powershell -ExecutionPolicy Bypass -File windows\run-golden.ps1 -Demo -Step
 `demo.mjs` の `commit()` が、次の 1 行を QEMU の stdin に書く（[agent-client.mjs](../scripts/guest/agent-client.mjs) の `request()`）。
 
 ```json
-{"id":5,"op":"commit","parent":0,"ops":[["write","src/app.js","console.log('v2')"],["rm","notes/todo.txt"]]}
+{"id":5,"op":"commit","layer":"1","parent":"0","ops":[["write","src/app.js","console.log('v2')"],["rm","notes/todo.txt"]]}
 ```
 
 - `id`：答えと対応づけるための番号。agent は同じ `id` を付けて答える
-- `parent`：どのコミットの上に積むか。ここではコミット #0 の上
+- `layer`：作る層の名前。名前はホスト（命令を出す側）が決める。デモでは番号、MicroGit に組み込むときは Git のコミットのハッシュを使う
+- `parent`：どの層の上に積むか。ここではコミット #0 の上。空文字列なら親の無い層
+- 命令の形の全体は [agent-protocol.md](./agent-protocol.md)（v1）
 - `ops`：やりたい操作の列。ゴールデンテストのシナリオと同じ形
 
 ### ② QEMU がゲストに渡す
@@ -97,56 +99,58 @@ agent は起動時に、名前が `microgit` の線を探して開いている�
 ```
 /run/microgit/
   base/   空っぽの一番下の層
-  u0/     コミット #0 の層（README.md、src/app.js v1、notes/todo.txt）
-  u1/     ← 今から作るコミット #1 の層（最初は空）
-  w1/     OverlayFS が作業に使う場所
+  l0/     コミット #0 の層（README.md、src/app.js v1、notes/todo.txt）
+  l1/     ← 今から作るコミット #1 の層（最初は空）
+  w1/     OverlayFS が作業に使う場所（凍結したら消す）
   m/      重ねた結果が見える場所（mount 先）
 ```
 
 agent はカーネルに、次の mount を頼む。
 
 ```
-mount -t overlay overlay -o lowerdir=u0:base,upperdir=u1,workdir=w1,userxattr m
+mount -t overlay overlay -o lowerdir=l0:base,upperdir=l1,workdir=w1,userxattr,redirect_dir=nofollow,index=off,metacopy=off,xino=off m
 ```
 
 - `lowerdir`：読み取り専用で下に敷く層。左ほど上。ここでは「#0 の層」と「空の base」
-- `upperdir`：書き込みを受け止める層。空の u1
-- `m` を覗くと、u0 と base を重ねた結果（= コミット #0 の姿）が見える
+- `upperdir`：書き込みを受け止める層。空の l1
+- 後ろのオプションは固定している（[ADR-0005](./adr/0005-mount-options.md)）。カーネルの版で既定値が変わらないようにするため
+- `m` を覗くと、l0 と base を重ねた結果（= コミット #0 の姿）が見える
+- 層のディレクトリ名は短い番号にしている。mount のオプション文字列は 4096 バイトまでなので、40 文字の Git のハッシュを並べると余裕が小さい（[ADR-0003](./adr/0003-layer-compaction.md)）
 
 ### ⑤ 操作を当てる
 
 agent は `m` の中で普通にファイル操作をする（`applyOp()`）。
 
-- `write src/app.js`：`m/src/app.js` に書く。OverlayFS は u0 のファイルを u1 にコピーしてから書き換える（**コピーアップ**）。u0 は変わらない
-- `rm notes/todo.txt`：`m/notes/todo.txt` を消す。u0 のファイルは消せないので、OverlayFS は u1 に「ここは消えた」という目印を置く（**whiteout**。中身は種類 0,0 の特殊なデバイスファイル）
+- `write src/app.js`：`m/src/app.js` に書く。OverlayFS は l0 のファイルを l1 にコピーしてから書き換える（**コピーアップ**）。l0 は変わらない
+- `rm notes/todo.txt`：`m/notes/todo.txt` を消す。l0 のファイルは消せないので、OverlayFS は l1 に「ここは消えた」という目印を置く（**whiteout**。中身は種類 0,0 の特殊なデバイスファイル）
 
-この結果、u1 には「変わったところ」だけが入る。
+この結果、l1 には「変わったところ」だけが入る。agent の `inspect` 命令で、層の中身をこの形で見られる（`w` が whiteout）。
 
 ```
-u1/
+l1/
   src/app.js        console.log('v2')
   notes/todo.txt    （whiteout）
 ```
 
 ### ⑥ unmount して凍結する
 
-agent は `m` を unmount する。u1 はもう書き換えない。これで u1 が「コミット #1」になる。次にコミット #1 の上に積むときは、u1 が lowerdir に入る（`lowerdirs()` が親をたどって u1:u0:base を作る）。
+agent は `m` を unmount する。l1 はもう書き換えない。これで l1 が「コミット #1」になる。次にコミット #1 の上に積むときは、l1 が lowerdir に入る（`lowerdirs()` が親をたどって l1:l0:base を作る）。
 
-これが要件定義書 FR-2 の「upper を凍結して新しい lower にする」そのもの。
+これが要件定義書 FR-2 の「upper を凍結して新しい lower にする」そのもの。保存のたびに 1 枚作る方式に決めた理由は [ADR-0004](./adr/0004-commit-per-save.md)（層のコミットは 0.1 ms ほどで、保存の時間のほとんどは Git の手順が占める）。
 
 ### ⑦ 答えを返す
 
 agent は次の 1 行を線に書く。QEMU がそれを stdout に出し、`agent-client.mjs` の `onLine()` が `id` を見て、待っている `commit()` に渡す。
 
 ```json
-{"id":5,"ok":true,"commit":1,"mountOptions":"rw,relatime,redirect_dir=nofollow,uuid=on,userxattr","elapsedUs":118}
+{"id":5,"ok":true,"layer":"1","depth":2,"mountOptions":"rw,relatime,redirect_dir=nofollow,uuid=on,userxattr","elapsedUs":118}
 ```
 
 `elapsedUs` はゲストの中で ④〜⑥ にかかった時間（マイクロ秒）。WHPX なら 0.1 ms ほど。
 
 ### ⑧ 見る・読む
 
-デモはそのあと `view` と `read` を送る（`store.view()`、`store.read()`）。どちらも、そのコミットまでの層を **upperdir なし**（読み取り専用）で mount して中を見て、すぐ unmount する。
+デモはそのあと `view` と `read` を送る（`store.view()`、`store.readMany()`）。`read` の中身は base64 で返るので、バイナリのファイルも送れる。どちらも、そのコミットまでの層を **upperdir なし**（読み取り専用）で mount して中を見て、すぐ unmount する。
 
 - `view`：ファイル一覧を「種類・パス・sha256」で返す（ゴールデンテストと同じ形）
 - `read`：1 つのファイルの中身を返す
@@ -156,7 +160,7 @@ agent は次の 1 行を線に書く。QEMU がそれを stdout に出し、`age
 | 0. 起動 | §3.1（カーネルが agent を起動するまで） |
 | 1〜2. 保存 | ①〜⑦ |
 | 3. 過去に戻る | ⑧ を古いコミットで行うだけ。層を書き換えていないので、昔の姿がそのまま見える |
-| 4. 枝分かれ | ④ で `parent` に #0 を指定する。#1 と #2 は u0 を共有し、互いの u1・u2 は見ない |
+| 4. 枝分かれ | ④ で `parent` に #0 を指定する。#1 と #2 は l0 を共有し、互いの l1・l2 は見ない |
 | 5. フォルダの名前変更 | §3.3 の EXDEV |
 
 ---
@@ -194,12 +198,16 @@ PID 1 は OS で最初に動くプログラムで、これが終わるとカー�
 
 | op | すること | 実装 |
 |---|---|---|
-| `hello` | カーネルと agent のバージョンを返す | `handle()` |
+| `hello` | 命令の形の版、カーネルと agent の版、固定している mount オプションを返す | `hello()` |
 | `reset` | 層をすべて捨てる | `store.reset()` |
-| `commit` | 親の上に層を 1 枚積む | `store.commit()` |
+| `commit` | 親の上に層を 1 枚積む。同じ名前・同じ親なら作り直さない | `store.commit()` |
 | `view` | ある時点のファイル一覧 | `store.view()` → `dump()` |
-| `read` | ある時点のファイルの中身 | `store.read()` |
+| `read` / `readMany` | ある時点のファイルの中身（base64） | `store.readMany()` |
+| `inspect` | 層そのものの中身（whiteout・opaque が分かる形） | `store.inspect()` |
+| `stats` | 層の数と、置き場所の使用量 | `store.stats()` |
 | `poweroff` | 答えてから電源を切る | `powerOff()` |
+
+失敗すると、種類の記号（`UNKNOWN_LAYER`、`BAD_PATH`、`ENOENT` など）が `code` に付く。全体は [agent-protocol.md](./agent-protocol.md)。
 
 agent を仮想マシンではなく普通のプログラムとして起動すると（PID 1 ではないとき）、同じ命令を stdin/stdout で受ける（`runStdio()`）。Linux なら `unshare -Urm guest/out/amd64/init` で、仮想マシンなしで同じことができる。これは「Linux では VM を使わない」（AD-2）経路の原型になる。
 
@@ -207,9 +215,9 @@ agent を仮想マシンではなく普通のプログラムとして起動す�
 
 デモの 5 段目。下の層（lowerdir）にあるフォルダの名前を変えようとすると、カーネルは `EXDEV`（「別のファイルシステムをまたぐ移動はできない」）という エラーを返す。
 
-理由は mount オプションの `redirect_dir=nofollow`。フォルダの名前変更を「層をまたいだ転送の記録」として持つ機能（redirect）が、非特権（`userxattr`）の mount では既定でオフになっている。
+理由は mount オプションの `redirect_dir=nofollow`。フォルダの名前変更を「層をまたいだ転送の記録」として持つ機能（redirect）は、非特権（`userxattr`）の mount では **そもそも使えない**。`userxattr` と `redirect_dir=on` を同時に指定すると、カーネルが `conflicting options` で断る（2026-09-26 に確認）。
 
-agent は、普通の `mv` コマンドと同じく「中身をコピーして元を消す」ことで代わりにやる（`applyOp()` の `mv`）。結果の見え方は同じだが、大きなフォルダだとコピーの分だけ遅くなる。どの mount オプションに固定するかは #12 で決める。
+agent は、普通の `mv` コマンドと同じく「中身をコピーして元を消す」ことで代わりにやる（`applyOp()` の `mv`）。結果の見え方は同じだが、大きなフォルダだとコピーの分だけ遅くなる。層の中を `inspect` で見ると、元のフォルダの whiteout と、新しい名前のフォルダのコピーが並んでいる。mount オプションの決定は [ADR-0005](./adr/0005-mount-options.md)。
 
 ### 3.4 ホスト側：AgentClient
 

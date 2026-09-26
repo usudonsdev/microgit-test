@@ -16,8 +16,7 @@
  *   凍結した upperdir がそのまま次のコミットの lower になる。
  *   期待値は、祖先＋自分の層だけを lowerdir にした読み取り専用 mount（FR-2 の view）の中身。
  *
- * mount オプションは userxattr だけを明示し、残りはカーネルの既定に任せている。
- * 固定する値は Issue #12（O-13）で決める。決まったら MOUNT_OPTS を直して取り直す。
+ * mount オプションは #12（O-13）で固定した値を明示する（MOUNT_OPTS）。
  */
 import { spawnSync } from 'child_process';
 import fs from 'fs';
@@ -27,8 +26,10 @@ import { chainOf, scenarios, validateScenarios } from './overlayfs-scenarios.mjs
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const OUT_DIR = path.join(ROOT, 'test', 'golden', 'overlayfs');
-// 非特権（ユーザー名前空間）で mount するには userxattr が必須
-const MOUNT_OPTS = 'userxattr';
+// 固定する mount オプション（#12、O-13）。guest/agent/overlay.go の overlayOpts と同じにする。
+// userxattr は非特権（ユーザー名前空間）で mount するのに必須。redirect_dir=on と metacopy=on は userxattr と同時には
+// カーネルが受け付けない。index・metacopy・xino はカーネルの版や設定で既定値が変わりうるので明示する
+const MOUNT_OPTS = 'userxattr,redirect_dir=nofollow,index=off,metacopy=off,xino=off';
 
 const q = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
@@ -182,6 +183,6 @@ for (const [name, lines] of goldens) {
 }
 fs.writeFileSync(
     path.join(OUT_DIR, 'meta.json'),
-    JSON.stringify({ ...meta, requestedMountOptions: MOUNT_OPTS, model: 'upper を凍結して次の lower にする（FR-2 初期案）' }, null, 2) + '\n',
+    JSON.stringify({ ...meta, requestedMountOptions: MOUNT_OPTS, model: 'upper を凍結して次の lower にする（FR-2。#12 で保存ごとに層を作る方式に決定）' }, null, 2) + '\n',
 );
 console.log(`recorded ${goldens.size} scenarios`, meta);
