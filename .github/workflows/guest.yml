@@ -9,12 +9,20 @@ on:
       - 'guest/**'
       - 'scripts/golden/**'
       - 'test/golden/**'
+      - 'src/**'
+      - 'scripts/test/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/guest.yml'
   pull_request:
     paths:
       - 'guest/**'
       - 'scripts/golden/**'
       - 'test/golden/**'
+      - 'src/**'
+      - 'scripts/test/**'
+      - 'package.json'
+      - 'package-lock.json'
       - '.github/workflows/guest.yml'
   workflow_dispatch:
 
@@ -102,6 +110,33 @@ jobs:
               -device virtconsole,chardev=con \
               -chardev stdio,id=proto,signal=off \
               -device virtserialport,chardev=proto,name=microgit
+
+      # ここからは拡張機能のコード（src/kernel/）を使うので、コンパイルする
+      - name: Install and compile the extension
+        run: |
+          npm ci
+          npm run compile
+
+      # カーネル版と Node 版の差分テスト（#14）: 同じ Git の履歴から各コミットに戻り、どちらのワークスペースも
+      # Git のツリーと一致するか。層の深さの上限を 2 にして、写しの層への切り替えとキャッシュが空の状態からの作り直しも通る
+      - name: Kernel vs Node.js backend (e2e over QEMU)
+        run: |
+          out=guest/out/${{ matrix.arch }}
+          node scripts/test/kernel-backend-e2e.mjs --max-depth 2 -- \
+            ${{ matrix.qemu }} \
+              -nodefaults -display none -no-reboot \
+              -kernel $out/Image -append "console=hvc0" \
+              -device virtio-serial-pci \
+              -chardev file,id=con,path=$out/console-e2e.log \
+              -device virtconsole,chardev=con \
+              -chardev stdio,id=proto,signal=off \
+              -device virtserialport,chardev=proto,name=microgit
+
+      # 補足 S-3 の受け入れ条件（#14）: GitHub の Ubuntu 24.04 は非特権のユーザー名前空間を AppArmor で止めているので、
+      # Linux の VM なしの経路（unshare -Urm）は起動に失敗し、Node.js 版に切り替わるはず。理由に uid_map が出る
+      - name: Linux native falls back on AppArmor-restricted runner (S-3)
+        if: matrix.arch == 'x86_64'
+        run: node scripts/test/native-fallback.mjs --expect fallback --reason uid_map
 
       # 再現可能なビルドの確認（#15、NFR-6）: 別の出力先にもう一度ビルドし、Image と init のバイト列が一致するか。
       # カーネルは O= の出力先が違っても同じバイト列になるはず（KBUILD_BUILD_* と SOURCE_DATE_EPOCH を固定）
