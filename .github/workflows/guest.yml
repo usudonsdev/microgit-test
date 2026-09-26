@@ -26,9 +26,13 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+      # agent をビルドする Go は guest/kernel/version.env の GO_VERSION に固定（#15、再現可能なビルド）
+      - name: Read pinned versions
+        id: pinned
+        run: echo "go=$(grep '^GO_VERSION=' guest/kernel/version.env | cut -d= -f2)" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-go@v5
         with:
-          go-version-file: guest/agent/go.mod
+          go-version: ${{ steps.pinned.outputs.go }}
           cache: false
       - name: Vet
         working-directory: guest/agent
@@ -58,9 +62,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read pinned versions
+        id: pinned
+        run: echo "go=$(grep '^GO_VERSION=' guest/kernel/version.env | cut -d= -f2)" >> "$GITHUB_OUTPUT"
+
       - uses: actions/setup-go@v5
         with:
-          go-version-file: guest/agent/go.mod
+          go-version: ${{ steps.pinned.outputs.go }}
           cache: false
 
       - uses: actions/setup-node@v4
@@ -80,7 +88,7 @@ jobs:
           key: linux-${{ hashFiles('guest/kernel/version.env') }}
 
       - name: Build guest
-        run: ARCH=${{ matrix.arch }} guest/build.sh
+        run: STRICT_TOOLCHAIN=1 ARCH=${{ matrix.arch }} guest/build.sh
 
       - name: Boot in QEMU and run golden scenarios
         run: |
@@ -94,6 +102,27 @@ jobs:
               -device virtconsole,chardev=con \
               -chardev stdio,id=proto,signal=off \
               -device virtserialport,chardev=proto,name=microgit
+
+      # 再現可能なビルドの確認（#15、NFR-6）: 別の出力先にもう一度ビルドし、Image と init のバイト列が一致するか。
+      # カーネルは O= の出力先が違っても同じバイト列になるはず（KBUILD_BUILD_* と SOURCE_DATE_EPOCH を固定）
+      - name: Rebuild in another directory and compare (reproducibility)
+        run: |
+          first=guest/out/${{ matrix.arch }}
+          second="$RUNNER_TEMP/rebuild-${{ matrix.arch }}"
+          OUT="$second" STRICT_TOOLCHAIN=1 ARCH=${{ matrix.arch }} guest/build.sh > /dev/null
+          ok=1
+          for f in Image init; do
+            a=$(sha256sum "$first/$f" | cut -d' ' -f1)
+            b=$(sha256sum "$second/$f" | cut -d' ' -f1)
+            echo "$f  first=$a  second=$b"
+            if [ "$a" != "$b" ]; then
+              ok=0
+              echo "::error::$f のバイト列が 2 回のビルドで違う"
+              cmp -l "$first/$f" "$second/$f" | head -20 || true
+            fi
+          done
+          [ "$ok" = 1 ] && echo "reproducible: Image と init が 2 回のビルドで一致"
+          [ "$ok" = 1 ]
 
       - name: Guest console log
         if: always()
@@ -117,4 +146,5 @@ jobs:
             guest/out/${{ matrix.arch }}/sizes.txt
             guest/out/${{ matrix.arch }}/console.log
             guest/out/${{ matrix.arch }}/guest-result.json
+            guest/out/${{ matrix.arch }}/init
           if-no-files-found: warn

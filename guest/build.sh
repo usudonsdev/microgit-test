@@ -2,6 +2,8 @@
 # 最小ゲスト（カーネル＋initramfs に埋め込んだ agent）をビルドする（Issue #15）。
 #
 # 使い方: ARCH=arm64 guest/build.sh     （ARCH は arm64 か x86_64。既定は arm64）
+#         OUT=<出力先> で出力先を変えられる（再現性の確認で 2 回目を別の場所に作るため）
+#         STRICT_TOOLCHAIN=1 なら、Go の版が version.env の GO_VERSION と違うと止める（CI）
 # 必要なもの（Ubuntu）: build-essential flex bison bc libelf-dev curl xz-utils golang、
 #                        クロスビルドなら gcc-aarch64-linux-gnu
 # 出力: guest/out/<ARCH>/ に Image（起動するカーネル）、init（agent）、config、sizes.txt
@@ -12,7 +14,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ARCH="${ARCH:-arm64}"
-OUT="$HERE/out/$ARCH"
+OUT="${OUT:-$HERE/out/$ARCH}"
 CACHE="$HERE/.cache"
 # shellcheck source=kernel/version.env
 source "$HERE/kernel/version.env"
@@ -27,14 +29,22 @@ if [[ "$(uname -m)" != "$ARCH" && ! ( "$(uname -m)" == aarch64 && "$ARCH" == arm
     CROSS="$TRIPLE-"
 fi
 
-# 再現可能なビルドのため、埋め込まれる時刻と名前を固定する（NFR-6。完全な一致はまだ確かめていない）
+# 再現可能なビルドのため、埋め込まれる時刻と名前を固定する（NFR-6）。
+# 別の出力先に 2 回ビルドしてハッシュが一致することを CI で確かめている（guest.yml）
 export KBUILD_BUILD_TIMESTAMP='1970-01-01 00:00:00 UTC'
 export KBUILD_BUILD_USER=microgit KBUILD_BUILD_HOST=microgit
 export SOURCE_DATE_EPOCH=0
 
 mkdir -p "$OUT" "$CACHE"
 
-echo "== agent"
+go_have="$(go env GOVERSION)"
+if [[ "$go_have" != "go$GO_VERSION" ]]; then
+    msg="Go の版が違う: $go_have（version.env は go$GO_VERSION）。できる init のバイト列が変わる"
+    if [[ "${STRICT_TOOLCHAIN:-}" == 1 ]]; then echo "$msg" >&2; exit 1; fi
+    echo "warning: $msg" >&2
+fi
+
+echo "== agent ($go_have)"
 (cd "$HERE/agent" && CGO_ENABLED=0 GOOS=linux GOARCH="$GOARCH" \
     go build -trimpath -ldflags "-s -w -buildid=" -o "$OUT/init" .)
 
@@ -89,9 +99,13 @@ kmake -s -j"$(nproc)" "$(basename "$IMAGE")"
 cp "$OUT/build/$IMAGE" "$OUT/Image"
 cp "$OUT/build/.config" "$OUT/config"
 
+# VSIX は zip で圧縮されるので、利用者がダウンロードする大きさは gzip -9 の値に近い
 {
-    echo "kernel $KERNEL_VERSION ($ARCH)"
-    echo "Image  $(stat -c %s "$OUT/Image") bytes (initramfs 込み)"
-    echo "init   $(stat -c %s "$OUT/init") bytes"
-    echo "sha256 $(sha256sum "$OUT/Image" | cut -d' ' -f1)"
+    echo "kernel      $KERNEL_VERSION ($ARCH)"
+    echo "go          $go_have"
+    echo "Image       $(stat -c %s "$OUT/Image") bytes (initramfs 込み)"
+    echo "Image.gz    $(gzip -9 -n -c "$OUT/Image" | wc -c) bytes (参考: 圧縮後)"
+    echo "init        $(stat -c %s "$OUT/init") bytes"
+    echo "sha256      $(sha256sum "$OUT/Image" | cut -d' ' -f1)  Image"
+    echo "sha256      $(sha256sum "$OUT/init" | cut -d' ' -f1)  init"
 } | tee "$OUT/sizes.txt"
