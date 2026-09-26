@@ -5,6 +5,7 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- ファイルを同じ名前のディレクトリに置き換えた時点（またはその逆）へ過去に戻ると、ワークスペースへの反映が例外で止まる不具合を修正（N-7。反映の順番を「消す → 書く」にした）
 - 日本語など ASCII 以外の名前のファイルが、Git の既定設定（`core.quotepath=true`）の環境で Overlay のレイヤに入らず、過去に戻っても中身が復元されない不具合を修正（#21 の N-6）
 - ファイルを同じ名前のディレクトリに置き換えて保存すると、レイヤの書き出しが例外で止まり、壊れたファイルが残る不具合を修正（N-3）
 - ディレクトリを同じ名前のファイルに置き換えると、保存時・過去に戻る時に例外になる不具合を修正（N-4）
@@ -12,6 +13,9 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 - 1 MiB を超えるファイルが Overlay のレイヤに入らない不具合を修正（`git show` の出力が execFileSync の既定の上限を超えていた）
 
 ### Added
+- **カーネルの OverlayFS を使う Overlay バックエンド**（#14、docs/kernel-backend.md）。Linux は仮想マシンなし（`unshare -Urm`、カーネル 5.11 以降）、Windows は同梱の QEMU と最小の Linux、macOS は Virtualization.framework（実機確認前）。使えない環境では自動で Node.js 版に切り替わる。過去に戻る操作が Linux で約 6 倍、Windows で約 8 倍速い（中央値、ファイル 200 の合成の履歴）
+- 設定 `microgit.overlayBackend`（`auto` が既定 / `kernel` / `nodejs`）、`microgit.kernel.qemuPath`・`microgit.kernel.accel`・`microgit.kernel.memoryMb`
+- `MicroGit: Overlay Status` に、使っているバックエンド、起動にかかった時間、層の数、最後に戻ったときの時間の内訳を表示
 - 設定 `microgit.durability`（`power` が既定）。マイクロ履歴の Git のオブジェクトと ref を fsync し、電源断や OS の異常終了でも記録済みの履歴を失わないようにする。`process` で従来どおり（Git の既定）に戻せる（#11、docs/adr/0002-durability.md）
 
 ### Changed

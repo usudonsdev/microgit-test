@@ -22,6 +22,8 @@ powershell -ExecutionPolicy Bypass -File windows\run-golden.ps1 -Demo -Step
 
 ---
 
+> MicroGit 本体への組み込み（保存と過去に戻る操作がカーネル版を使う流れ、設定、速さ）は [kernel-backend.md](./kernel-backend.md) にまとめた。この文書はデモを使って、ゲストの中で起きることを追う。
+
 ## 1. 全体の地図
 
 ```
