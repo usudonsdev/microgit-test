@@ -61,6 +61,18 @@ describe('Linux: VM なし（unshare -Urm）', () => {
         assert.deepStrictEqual(plan.spec.args, ['-Urm', dev('guest', 'out', 'arm64', 'init')]);
     });
 
+    test('起動する前に agent の実行ビットを確かめる（VSIX で落ちることがある、#19）', () => {
+        const agent = bundled('linux-x64', 'microgit-agent');
+        const asked: string[] = [];
+        const ok = planLaunch(deps({ files: [agent], ensureExecutable: (p) => { asked.push(p); return undefined; } }));
+        assert.ok(ok.ok);
+        assert.deepStrictEqual(asked, [agent]);
+
+        const ng = planLaunch(deps({ files: [agent], ensureExecutable: () => 'EACCES: permission denied' }));
+        assert.ok(!ng.ok);
+        assert.match(ng.reason, /microgit-agent is not executable: EACCES/);
+    });
+
     test('使えない理由を返す', () => {
         const reasons = [
             planLaunch(deps({ osRelease: '5.10.0', files: [bundled('linux-x64', 'microgit-agent')] })),
@@ -131,6 +143,17 @@ describe('macOS: Virtualization.framework', () => {
         assert.strictEqual(plan.kind, 'vz');
         assert.deepStrictEqual(plan.spec.args.slice(0, 2), ['--kernel', bundled('guest', 'arm64', 'Image')]);
         assert.ok(plan.notes.some((n) => n.includes('#17')));
+    });
+
+    test('microgit-vm の実行ビットも確かめる（ゲストの Image は実行しないので確かめない）', () => {
+        const asked: string[] = [];
+        const plan = planLaunch(deps({
+            platform: 'darwin', arch: 'arm64',
+            files: [bundled('guest', 'arm64', 'Image'), bundled('darwin-arm64', 'microgit-vm')],
+            ensureExecutable: (p) => { asked.push(p); return undefined; },
+        }));
+        assert.ok(plan.ok);
+        assert.deepStrictEqual(asked, [bundled('darwin-arm64', 'microgit-vm')]);
     });
 
     test('Intel Mac は対象外', () => {
