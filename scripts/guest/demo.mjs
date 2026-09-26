@@ -27,6 +27,8 @@ const consoleLog = opts.includes('--console') ? opts[opts.indexOf('--console') +
 
 const timings = [];
 let agent;
+/** 層の名前はホストが決める（命令の形 v1）。MicroGit では Git のコミットのハッシュを使うが、デモでは番号 */
+let nextLayer = 0;
 
 function heading(n, title) {
     console.log(`\n========== ${n}. ${title} ==========`);
@@ -54,15 +56,16 @@ async function commit(label, parent, ops) {
         }[op[0]]();
         say(`  - ${text}`);
     }
-    const res = await agent.call({ op: 'commit', parent, ops });
+    const layer = String(nextLayer++);
+    const res = await agent.call({ op: 'commit', layer, parent: parent === -1 ? '' : parent, ops });
     timings.push(res.elapsedUs);
-    say(`→ コミット #${res.commit} になった（ゲストの中で ${(res.elapsedUs / 1000).toFixed(2)} ms）`);
-    return res;
+    say(`→ コミット #${layer} になった（層の深さ ${res.depth}、ゲストの中で ${(res.elapsedUs / 1000).toFixed(2)} ms）`);
+    return { ...res, commit: layer };
 }
 
 /** コミット時点のファイル一覧を、中身と一緒に木の形で出す */
 async function showTree(commitId, title) {
-    const { entries } = await agent.call({ op: 'view', commit: commitId });
+    const entries = (await agent.call({ op: 'view', layer: commitId })).entries ?? [];
     say(`${title}（コミット #${commitId} の時点）:`);
     if (!entries.length) {
         say('  （空）');
@@ -76,7 +79,8 @@ async function showTree(commitId, title) {
         if (type === 'd') {
             say(`${indent}${name}/`);
         } else if (type === 'f') {
-            const { content } = await agent.call({ op: 'read', commit: commitId, path: rel });
+            const { data } = await agent.call({ op: 'read', layer: commitId, path: rel });
+            const content = Buffer.from(data, 'base64').toString('utf8');
             const shown = content.length > 40 ? `${content.slice(0, 40)}…` : content;
             say(`${indent}${name}  "${shown}"`);
         } else {
