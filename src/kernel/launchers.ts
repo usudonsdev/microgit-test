@@ -48,6 +48,12 @@ export type LauncherDeps = {
     which: (cmd: string) => string | undefined;
     /** 名前付きパイプの名前に使う乱数（テストで固定するため）。既定は 128 ビットの乱数 */
     randomId?: () => string;
+    /**
+     * 同梱の実行ファイル（Linux の agent、macOS の microgit-vm）に実行ビットを付ける。
+     * VSIX（zip）を Windows で作ると実行ビットが落ちる（vsce の文書）。付けられなければ理由を返す。
+     * 省略すると何もしない（単体テスト、Windows）
+     */
+    ensureExecutable?: (p: string) => string | undefined;
 };
 
 /** PATH からコマンドを探す（Windows では PATHEXT の拡張子も試す） */
@@ -89,6 +95,12 @@ function resource(deps: LauncherDeps, ...parts: string[]): string {
     return path.join(deps.extensionPath, 'resources', 'kernel', ...parts);
 }
 
+/** 実行ビットを確かめ、付けられなければ LaunchPlan の失敗にする */
+function executableOrReason(deps: LauncherDeps, file: string): string | undefined {
+    const err = deps.ensureExecutable?.(file);
+    return err ? `${file} is not executable: ${err}` : undefined;
+}
+
 /** Node の arch を、ゲストのビルドの名前（guest/out/<名前>）にする */
 function guestArch(arch: string): 'x86_64' | 'arm64' | undefined {
     if (arch === 'x64') { return 'x86_64'; }
@@ -116,6 +128,8 @@ function planLinux(deps: LauncherDeps): LaunchPlan {
         path.join(deps.extensionPath, 'guest', 'out', ga, 'init'),
     ]);
     if (!agent) { return { ok: false, reason: `agent binary for linux-${deps.arch} is not bundled` }; }
+    const notExecutable = executableOrReason(deps, agent);
+    if (notExecutable) { return { ok: false, reason: notExecutable }; }
     const unshare = deps.which('unshare');
     if (!unshare) { return { ok: false, reason: 'unshare (util-linux) is not found in PATH' }; }
 
@@ -207,6 +221,8 @@ function planMac(deps: LauncherDeps): LaunchPlan {
         path.join(deps.extensionPath, 'mac', '.build', 'microgit-vm'),
     ]);
     if (!helper) { return { ok: false, reason: 'microgit-vm is not bundled' }; }
+    const notExecutable = executableOrReason(deps, helper);
+    if (notExecutable) { return { ok: false, reason: notExecutable }; }
     const consoleLog = path.join(deps.logDir, 'microgit-guest-console.log');
     return {
         ok: true,

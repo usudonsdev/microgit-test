@@ -4,6 +4,13 @@ All notable changes to the "MicroGit" extension will be documented in this file.
 
 ## [Unreleased]
 
+## [5.0.0] - 未公開（Marketplace に出した日を入れる）
+
+### Added
+- **プラットフォーム別の VSIX**（#19）。Windows x64 用には同梱の QEMU と最小の Linux（約 9.4 MB）、Linux x64 / arm64 用には agent（約 1.3〜1.4 MB）が入る。それ以外の環境（macOS、Windows on Arm など）には、カーネル版の部品が無い版（約 0.1 MB、Node.js 版だけ）が配られる
+- `THIRD_PARTY_NOTICES.md`：同梱している第三者のソフトウェア（Linux カーネル、QEMU、SeaBIOS、GLib などの DLL、Go のランタイム）とライセンス、ソースの置き場所
+- 同梱の agent に実行ビットが無ければ、起動の前に付ける（付けられなければ Node.js 版で動く）
+
 ### Fixed
 - ファイルを同じ名前のディレクトリに置き換えた時点（またはその逆）へ過去に戻ると、ワークスペースへの反映が例外で止まる不具合を修正（N-7。反映の順番を「消す → 書く」にした）
 - 日本語など ASCII 以外の名前のファイルが、Git の既定設定（`core.quotepath=true`）の環境で Overlay のレイヤに入らず、過去に戻っても中身が復元されない不具合を修正（#21 の N-6）

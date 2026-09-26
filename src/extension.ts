@@ -21,6 +21,7 @@ import {
     writeLayerDir,
 } from './overlay';
 import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
+import { ensureExecutable } from './kernel/executable';
 import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
 import {
     ensureShadowRepoForBranch,
@@ -89,6 +90,8 @@ function createBackendSelector(context: vscode.ExtensionContext): BackendSelecto
                 logDir,
                 exists: (p) => fs.existsSync(p),
                 which: (cmd) => findInPath(cmd, process.env, process.platform, (p) => fs.existsSync(p)),
+                // 同梱の agent・microgit-vm の実行ビット（VSIX で落ちることがある。#19）
+                ensureExecutable: process.platform === 'win32' ? undefined : (p) => ensureExecutable(p, (m) => ExtensionLogger.log(m)),
             });
         },
         tryRunGit,
