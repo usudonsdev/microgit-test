@@ -2,6 +2,7 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -10,48 +11,78 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 )
 
-// store はコミットを OverlayFS の層として持つ。
+// store はコミットを OverlayFS の層として持つ（命令の形 v1、docs/agent-protocol.md）。
 //
-// モデルは scripts/golden/record-kernel.mjs と同じ（要件定義書 FR-2 の初期案）:
-//   コミット = 祖先の層を lowerdir に積み、空の upperdir に ops を書いて unmount したもの。
-//   凍結した upper がそのまま子の lower になる。view は祖先＋自分の層だけの読み取り専用 mount。
+// 層の名前（id）はホストが決める文字列で、MicroGit では Git のコミットのハッシュを使う。
+// ディスク上のディレクトリ名は短い番号（l0, l1, ...）にする。lowerdir のオプション文字列は
+// 従来の mount(2) では 1 ページ（4096 バイト）までなので、40 文字のハッシュをそのまま使うと
+// 余裕が小さい（docs/adr/0003-layer-compaction.md）。
 //
-// 層はゲストの tmpfs（/run/microgit）に置く。upperdir の置き場所（O-2）は #17 で決めるまでの仮。
-// 電源を切ると消えるので、今はゴールデンテストと計測のためだけに使う。
+// コミットのモデル（FR-2、#12 で「保存ごとに層を作る」に決定）:
+//   コミット = 親までの層を lowerdir に積み、空の upperdir に ops を書いて unmount したもの。
+//   凍結した upper がそのまま子の lower になる。view は親までの層＋自分の層だけの読み取り専用 mount。
+//
+// 層は正本ではなくキャッシュ（ADR-0001）。ホストはいつでも reset して Git から作り直せる。
 type store struct {
-	root    string
-	parents []int // parents[id] = 親のコミット番号（最初は -1）
+	root   string
+	layers map[string]*layer
+	next   int
+}
+
+type layer struct {
+	dir    string // root からの相対（"l0" など）
+	parent string // 親の id。空なら親なし（base の上）
+	depth  int    // 自分を含めた層の数（base を除く）
 }
 
 type commitInfo struct {
+	existed      bool
+	depth        int
 	mountOptions string
 	exdevRenames int
 }
 
-// mount オプション。record-kernel.mjs の MOUNT_OPTS と揃える（期待値を記録した条件と同じにするため）。
-// 固定する値は #12（O-13）で決める。
-const overlayOpts = "userxattr"
+// overlayOpts は固定する mount オプション（#12、O-13）。record-kernel.mjs の MOUNT_OPTS と同じにする。
+//
+//   userxattr          非特権（ユーザー名前空間の root）で mount するのに必須（カーネル 5.11 以降）。
+//                      tmpfs を upper にするには tmpfs の user.* xattr（6.6 以降）も要る
+//   redirect_dir=nofollow  下の層のディレクトリの rename は EXDEV にする。userxattr と redirect_dir=on は
+//                      カーネルが同時に受け付けない（"conflicting options"。2026-09-26 に 6.6 で確認）
+//   index=off / metacopy=off / xino=off  カーネルの版や設定で既定値が変わりうるものを明示して揃える。
+//                      metacopy=on も userxattr と同時には受け付けない
+const overlayOpts = "userxattr,redirect_dir=nofollow,index=off,metacopy=off,xino=off"
+
+// maxDepth は 1 つの view に積める層の数の上限（安全のため）。OverlayFS は 500 層まで。
+// どこで写しの層に切り替えるかはホストが決める（ADR-0003 では 32）。
+const maxDepth = 400
+
+// maxOptionBytes は mount(2) に渡すオプション文字列の上限（1 ページ）。
+const maxOptionBytes = 4096
+
+// maxReadBytes は read / readMany で 1 回に返す中身の合計の上限。応答は 1 行の JSON なので大きくしない。
+const maxReadBytes = 32 << 20
 
 func newStore(root string) (*store, error) {
 	s := &store{root: root}
 	return s, s.reset()
 }
 
-func (s *store) mnt() string        { return filepath.Join(s.root, "m") }
-func (s *store) upper(id int) string { return filepath.Join(s.root, fmt.Sprintf("u%d", id)) }
-func (s *store) work(id int) string  { return filepath.Join(s.root, fmt.Sprintf("w%d", id)) }
-func (s *store) base() string        { return filepath.Join(s.root, "base") }
+func (s *store) abs(rel string) string { return filepath.Join(s.root, rel) }
+func (s *store) mnt() string          { return s.abs("m") }
+func (s *store) base() string         { return s.abs("base") }
 
 func (s *store) reset() error {
 	_ = syscall.Unmount(s.mnt(), 0)
 	if err := os.RemoveAll(s.root); err != nil {
 		return err
 	}
-	s.parents = nil
+	s.layers = map[string]*layer{}
+	s.next = 0
 	for _, d := range []string{s.base(), s.mnt()} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			return err
@@ -60,41 +91,69 @@ func (s *store) reset() error {
 	return nil
 }
 
-// lowerdirs は id から最初のコミットまでの層を、上の層が先の順で返す。最後は空の base。
+// lowerdirs は id から親をたどった層のディレクトリを、上の層が先の順で返す。最後は空の base。
 // 読み取り専用の overlay は lowerdir が 2 つ以上いるので、base を必ず足す。
-func (s *store) lowerdirs(id int) []string {
+func (s *store) lowerdirs(id string) []string {
 	var dirs []string
-	for n := id; n >= 0; n = s.parents[n] {
-		dirs = append(dirs, s.upper(n))
+	for n := id; n != ""; n = s.layers[n].parent {
+		dirs = append(dirs, s.abs(s.layers[n].dir))
 	}
 	return append(dirs, s.base())
 }
 
-func (s *store) commit(parent int, ops [][]string) (int, commitInfo, error) {
+func checkOptions(data string) error {
+	if len(data) >= maxOptionBytes {
+		return &protoError{code: "OPTIONS_TOO_LONG", msg: fmt.Sprintf("mount options are %d bytes (limit %d)", len(data), maxOptionBytes)}
+	}
+	return nil
+}
+
+func (s *store) commit(id, parent string, ops [][]string) (commitInfo, error) {
 	var info commitInfo
-	if parent < -1 || parent >= len(s.parents) {
-		return 0, info, fmt.Errorf("unknown parent %d", parent)
+	if id == "" {
+		return info, &protoError{code: "BAD_REQUEST", msg: "commit needs layer"}
 	}
-	id := len(s.parents)
+	if l, ok := s.layers[id]; ok {
+		// 同じ id の層がもうある。ホストの再送や、別の枝から同じコミットに届いた場合。
+		// 層は Git のコミットと 1 対 1 なので、中身は同じはず。作り直さずにそのまま返す
+		if l.parent != parent {
+			return info, &protoError{code: "EEXIST", msg: fmt.Sprintf("layer %s exists with a different parent", id)}
+		}
+		return commitInfo{existed: true, depth: l.depth}, nil
+	}
 	lowers := []string{s.base()}
-	if parent >= 0 {
+	depth := 1
+	if parent != "" {
+		p, ok := s.layers[parent]
+		if !ok {
+			return info, &protoError{code: "UNKNOWN_LAYER", msg: "unknown parent " + parent}
+		}
 		lowers = s.lowerdirs(parent)
+		depth = p.depth + 1
 	}
-	for _, d := range []string{s.upper(id), s.work(id)} {
+	if depth > maxDepth {
+		return info, &protoError{code: "TOO_DEEP", msg: fmt.Sprintf("depth %d exceeds %d", depth, maxDepth)}
+	}
+	dir := fmt.Sprintf("l%d", s.next)
+	work := fmt.Sprintf("w%d", s.next)
+	data := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s,%s", strings.Join(lowers, ":"), s.abs(dir), s.abs(work), overlayOpts)
+	if err := checkOptions(data); err != nil {
+		return info, err
+	}
+	for _, d := range []string{s.abs(dir), s.abs(work)} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
-			return 0, info, err
+			return info, err
 		}
 	}
-	data := fmt.Sprintf("lowerdir=%s,upperdir=%s,workdir=%s,%s", strings.Join(lowers, ":"), s.upper(id), s.work(id), overlayOpts)
 	if err := syscall.Mount("overlay", s.mnt(), "overlay", 0, data); err != nil {
-		return 0, info, fmt.Errorf("mount overlay: %w", err)
+		return info, fmt.Errorf("mount overlay: %w", err)
 	}
 	info.mountOptions = currentMountOptions(s.mnt())
 	opErr := func() error {
 		for _, op := range ops {
 			n, err := applyOp(s.mnt(), op)
 			if err != nil {
-				return err
+				return fmt.Errorf("op %v: %w", opSummary(op), err)
 			}
 			info.exdevRenames += n
 		}
@@ -103,89 +162,200 @@ func (s *store) commit(parent int, ops [][]string) (int, commitInfo, error) {
 	if err := syscall.Unmount(s.mnt(), 0); err != nil && opErr == nil {
 		opErr = fmt.Errorf("unmount: %w", err)
 	}
+	// workdir は mount 中だけ使う作業場所。凍結した層には要らない
+	_ = os.RemoveAll(s.abs(work))
 	if opErr != nil {
-		_ = os.RemoveAll(s.upper(id))
-		_ = os.RemoveAll(s.work(id))
-		return 0, info, opErr
+		_ = os.RemoveAll(s.abs(dir))
+		return info, opErr
 	}
-	s.parents = append(s.parents, parent)
-	return id, info, nil
+	s.next++
+	s.layers[id] = &layer{dir: dir, parent: parent, depth: depth}
+	info.depth = depth
+	return info, nil
 }
 
-func (s *store) view(id int) ([]string, error) {
-	if id < 0 || id >= len(s.parents) {
-		return nil, fmt.Errorf("unknown commit %d", id)
+// withView は id の時点のツリーを読み取り専用で mount し、fn を呼んでから unmount する。
+func (s *store) withView(id string, fn func(root string) error) error {
+	if _, ok := s.layers[id]; !ok {
+		return &protoError{code: "UNKNOWN_LAYER", msg: "unknown layer " + id}
 	}
 	data := fmt.Sprintf("lowerdir=%s,%s", strings.Join(s.lowerdirs(id), ":"), overlayOpts)
-	if err := syscall.Mount("overlay", s.mnt(), "overlay", syscall.MS_RDONLY, data); err != nil {
-		return nil, fmt.Errorf("mount view: %w", err)
+	if err := checkOptions(data); err != nil {
+		return err
 	}
-	entries, err := dump(s.mnt())
+	if err := syscall.Mount("overlay", s.mnt(), "overlay", syscall.MS_RDONLY, data); err != nil {
+		return fmt.Errorf("mount view: %w", err)
+	}
+	err := fn(s.mnt())
 	if uerr := syscall.Unmount(s.mnt(), 0); uerr != nil && err == nil {
 		err = fmt.Errorf("unmount view: %w", uerr)
 	}
+	return err
+}
+
+func (s *store) view(id string) ([]string, error) {
+	var entries []string
+	err := s.withView(id, func(root string) error {
+		var err error
+		entries, err = dump(root)
+		return err
+	})
 	return entries, err
 }
 
-// maxReadBytes は read で返すファイルの大きさの上限。応答は 1 行の JSON なので大きくしない
-const maxReadBytes = 1 << 20
+type fileData struct {
+	Path string `json:"path"`
+	Data string `json:"data"` // base64
+}
 
-// read は、あるコミット時点のファイルの中身を返す（view と同じ読み取り専用 mount を使う）。
-func (s *store) read(id int, rel string) (string, error) {
-	if id < 0 || id >= len(s.parents) {
-		return "", fmt.Errorf("unknown commit %d", id)
+// readMany は id の時点のファイルの中身を base64 で返す。合計が maxReadBytes を超えたら TOO_LARGE。
+// ホストは TOO_LARGE を受けたら、パスを分けて頼み直す。
+func (s *store) readMany(id string, paths []string) ([]fileData, error) {
+	var out []fileData
+	err := s.withView(id, func(root string) error {
+		total := 0
+		for _, rel := range paths {
+			p, err := safeJoin(root, rel)
+			if err != nil {
+				return err
+			}
+			st, err := os.Lstat(p)
+			if err != nil {
+				return err
+			}
+			if !st.Mode().IsRegular() {
+				return &protoError{code: "EINVAL", msg: rel + " is not a regular file"}
+			}
+			total += int(st.Size())
+			if total > maxReadBytes {
+				return &protoError{code: "TOO_LARGE", msg: fmt.Sprintf("total exceeds %d bytes", maxReadBytes)}
+			}
+			b, err := os.ReadFile(p)
+			if err != nil {
+				return err
+			}
+			out = append(out, fileData{Path: rel, Data: base64.StdEncoding.EncodeToString(b)})
+		}
+		return nil
+	})
+	return out, err
+}
+
+// inspect は層そのもの（凍結した upper）の中身を、OverlayFS の表現が分かる形で返す。
+//   w  whiteout（種類 0,0 のキャラクタデバイス）
+//   O  opaque ディレクトリ（user.overlay.opaque=y。下の層の中身を隠す）
+//   r  redirect の付いたディレクトリ（user.overlay.redirect。redirect_dir=nofollow では作られない）
+//   d  ディレクトリ、f  ファイル、l  シンボリックリンク、o  その他
+// ゴールデンテストはマージ済みのビューしか比べないので、層の表現はこれで確かめる（#12）。
+func (s *store) inspect(id string) ([]string, error) {
+	l, ok := s.layers[id]
+	if !ok {
+		return nil, &protoError{code: "UNKNOWN_LAYER", msg: "unknown layer " + id}
 	}
-	data := fmt.Sprintf("lowerdir=%s,%s", strings.Join(s.lowerdirs(id), ":"), overlayOpts)
-	if err := syscall.Mount("overlay", s.mnt(), "overlay", syscall.MS_RDONLY, data); err != nil {
-		return "", fmt.Errorf("mount view: %w", err)
+	root := s.abs(l.dir)
+	var lines []string
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if p == root {
+			return nil
+		}
+		rel, _ := filepath.Rel(root, p)
+		rel = filepath.ToSlash(rel)
+		st, err := os.Lstat(p)
+		if err != nil {
+			return err
+		}
+		mode := st.Mode()
+		switch {
+		case mode&os.ModeCharDevice != 0:
+			if sys, ok := st.Sys().(*syscall.Stat_t); ok && sys.Rdev == 0 {
+				lines = append(lines, "w\t"+rel)
+			} else {
+				lines = append(lines, "o\t"+rel)
+			}
+		case mode.IsDir():
+			kind := "d"
+			if xattrValue(p, "user.overlay.opaque") == "y" {
+				kind = "O"
+			}
+			line := kind + "\t" + rel
+			if r := xattrValue(p, "user.overlay.redirect"); r != "" {
+				line = "r\t" + rel + "\t" + r
+			}
+			lines = append(lines, line)
+		case mode&os.ModeSymlink != 0:
+			lines = append(lines, "l\t"+rel)
+		case mode.IsRegular():
+			lines = append(lines, "f\t"+rel)
+		default:
+			lines = append(lines, "o\t"+rel)
+		}
+		return nil
+	})
+	sort.Slice(lines, func(i, j int) bool { return field(lines[i], 1) < field(lines[j], 1) })
+	return lines, err
+}
+
+func field(line string, i int) string {
+	parts := strings.Split(line, "\t")
+	if i < len(parts) {
+		return parts[i]
 	}
-	content, err := func() (string, error) {
-		p, err := safeJoin(s.mnt(), rel)
-		if err != nil {
-			return "", err
-		}
-		f, err := os.Open(p)
-		if err != nil {
-			return "", err
-		}
-		defer f.Close()
-		b, err := io.ReadAll(io.LimitReader(f, maxReadBytes+1))
-		if err != nil {
-			return "", err
-		}
-		if len(b) > maxReadBytes {
-			return "", fmt.Errorf("%s is larger than %d bytes", rel, maxReadBytes)
-		}
-		return string(b), nil
-	}()
-	if uerr := syscall.Unmount(s.mnt(), 0); uerr != nil && err == nil {
-		err = fmt.Errorf("unmount view: %w", uerr)
+	return ""
+}
+
+func xattrValue(p, name string) string {
+	buf := make([]byte, 256)
+	n, err := syscall.Getxattr(p, name, buf)
+	if err != nil || n <= 0 {
+		return ""
 	}
-	return content, err
+	return string(buf[:n])
 }
 
 // safeJoin はシナリオの相対パスを mount 先の絶対パスにする。外へ出るパスは拒否する。
 func safeJoin(root, rel string) (string, error) {
 	if rel == "" || strings.HasPrefix(rel, "/") {
-		return "", fmt.Errorf("bad path %q", rel)
+		return "", &protoError{code: "BAD_PATH", msg: fmt.Sprintf("bad path %q", rel)}
 	}
 	for _, seg := range strings.Split(rel, "/") {
 		if seg == "" || seg == "." || seg == ".." {
-			return "", fmt.Errorf("bad path %q", rel)
+			return "", &protoError{code: "BAD_PATH", msg: fmt.Sprintf("bad path %q", rel)}
 		}
 	}
 	return filepath.Join(root, filepath.FromSlash(rel)), nil
 }
 
-// applyOp は scripts/golden/overlayfs-scenarios.mjs の op を 1 つ当てる。
-// 戻り値の int は、rename が EXDEV になってコピーで代わりにやった回数。
+func opSummary(op []string) string {
+	if len(op) >= 2 {
+		return op[0] + " " + op[1]
+	}
+	return strings.Join(op, " ")
+}
+
+// applyOp は op を 1 つ当てる。戻り値の int は、rename が EXDEV になってコピーで代わりにやった回数。
+//
+//   ["write", path, text]              テキストを書く（ゴールデンテストのシナリオ用）
+//   ["writeb64", path, base64, mode?]  中身を base64 で渡して書く。mode は "644" / "755"（省略時 644）
+//   ["rm", path]                       ファイルを消す
+//   ["rmdir", path]                    ディレクトリを中身ごと消す
+//   ["mkdir", path]                    ディレクトリを作る
+//   ["mv", from, to]                   名前を変える（下の層のディレクトリは EXDEV → コピーして消す）
+//
+// write / writeb64 は、置き先にディレクトリがあれば中身ごと消してからファイルを置き、途中に
+// ファイルがあれば消してディレクトリにする。Git のツリーでは同じパスがファイルとディレクトリを
+// 同時に取らないので、ホストが「消す op」を先に並べれば起きないが、順番に依存しないようにする。
 func applyOp(root string, op []string) (int, error) {
 	if len(op) == 0 {
-		return 0, errors.New("empty op")
+		return 0, &protoError{code: "BAD_REQUEST", msg: "empty op"}
 	}
-	want := map[string]int{"write": 3, "rm": 2, "rmdir": 2, "mkdir": 2, "mv": 3}[op[0]]
-	if want == 0 || len(op) != want {
-		return 0, fmt.Errorf("bad op %v", op)
+	arity := map[string][2]int{
+		"write": {3, 3}, "writeb64": {3, 4}, "rm": {2, 2}, "rmdir": {2, 2}, "mkdir": {2, 2}, "mv": {3, 3},
+	}[op[0]]
+	if arity[0] == 0 || len(op) < arity[0] || len(op) > arity[1] {
+		return 0, &protoError{code: "BAD_REQUEST", msg: fmt.Sprintf("bad op %v", opSummary(op))}
 	}
 	a, err := safeJoin(root, op[1])
 	if err != nil {
@@ -193,10 +363,21 @@ func applyOp(root string, op []string) (int, error) {
 	}
 	switch op[0] {
 	case "write":
-		if err := os.MkdirAll(filepath.Dir(a), 0o755); err != nil {
-			return 0, err
+		return 0, writeFileReplacing(root, a, []byte(op[2]), 0o644)
+	case "writeb64":
+		b, err := base64.StdEncoding.DecodeString(op[2])
+		if err != nil {
+			return 0, &protoError{code: "BAD_REQUEST", msg: "bad base64 for " + op[1]}
 		}
-		return 0, os.WriteFile(a, []byte(op[2]), 0o644)
+		mode := os.FileMode(0o644)
+		if len(op) == 4 {
+			m, err := strconv.ParseUint(op[3], 8, 32)
+			if err != nil || (m != 0o644 && m != 0o755) {
+				return 0, &protoError{code: "BAD_REQUEST", msg: "mode must be 644 or 755"}
+			}
+			mode = os.FileMode(m)
+		}
+		return 0, writeFileReplacing(root, a, b, mode)
 	case "rm":
 		return 0, syscall.Unlink(a)
 	case "rmdir":
@@ -225,6 +406,42 @@ func applyOp(root string, op []string) (int, error) {
 	return 0, nil
 }
 
+// writeFileReplacing は p にファイルを書く。途中のパスにファイルがあれば消し、p にディレクトリがあれば中身ごと消す。
+func writeFileReplacing(root, p string, data []byte, mode os.FileMode) error {
+	rel, err := filepath.Rel(root, filepath.Dir(p))
+	if err != nil {
+		return err
+	}
+	cur := root
+	if rel != "." {
+		for _, part := range strings.Split(rel, string(filepath.Separator)) {
+			cur = filepath.Join(cur, part)
+			st, err := os.Lstat(cur)
+			if err == nil && st.IsDir() {
+				continue
+			}
+			if err == nil {
+				if err := os.Remove(cur); err != nil {
+					return err
+				}
+			}
+			if err := os.Mkdir(cur, 0o755); err != nil {
+				return err
+			}
+		}
+	}
+	if st, err := os.Lstat(p); err == nil && st.IsDir() {
+		if err := os.RemoveAll(p); err != nil {
+			return err
+		}
+	}
+	if err := os.WriteFile(p, data, mode); err != nil {
+		return err
+	}
+	// 既存のファイルを上書きしたとき、WriteFile は mode を変えない
+	return os.Chmod(p, mode)
+}
+
 func copyTree(src, dst string) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -245,12 +462,16 @@ func copyTree(src, dst string) error {
 		case d.IsDir():
 			return os.MkdirAll(to, 0o755)
 		default:
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
 			in, err := os.Open(p)
 			if err != nil {
 				return err
 			}
 			defer in.Close()
-			out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+			out, err := os.OpenFile(to, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, info.Mode().Perm())
 			if err != nil {
 				return err
 			}
@@ -347,4 +568,14 @@ func currentMountOptions(mountpoint string) string {
 		return strings.Join(keep, ",")
 	}
 	return ""
+}
+
+// stats は層の数と、層の置き場所のファイルシステムの使用量を返す。
+func (s *store) stats() (layers int, usedBytes, totalBytes uint64) {
+	var st syscall.Statfs_t
+	if err := syscall.Statfs(s.root, &st); err == nil {
+		totalBytes = st.Blocks * uint64(st.Bsize)
+		usedBytes = (st.Blocks - st.Bfree) * uint64(st.Bsize)
+	}
+	return len(s.layers), usedBytes, totalBytes
 }

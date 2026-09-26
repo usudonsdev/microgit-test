@@ -1,10 +1,12 @@
-// MicroGit の最小ゲストの init 兼 agent（Issue #15, #17）。
+// MicroGit の最小ゲストの init 兼 agent（Issue #15, #17, #12）。
 //
 // カーネルは initramfs の /init としてこれを PID 1 で起動する。ゲストのユーザーランドはこの 1 ファイルだけで、
 // シェルは入れない（AD-7）。PID 1 が終わるとカーネルがパニックするので、main は戻らない。
 //
 // ホストとは virtio-console の名前付きポート "microgit" でつながる。1 行 1 つの JSON で要求を受け、
-// 1 行 1 つの JSON で答える（要求と応答は 1 対 1、順番どおり）。命令の形は仮のもので、正式には #12 で決める。
+// 1 行 1 つの JSON で答える（要求と応答は 1 対 1、順番どおり）。命令の形は docs/agent-protocol.md（v1）。
+//
+// PID 1 以外で起動すると、同じ命令を stdin/stdout で受ける（Linux ホストで VM を使わない経路、AD-2・#14）。
 package main
 
 import (
@@ -21,18 +23,22 @@ import (
 )
 
 const (
-	agentVersion = "0.2.0"
-	portName     = "microgit"
-	stateRoot    = "/run/microgit"
+	agentVersion    = "1.0.0"
+	protocolVersion = 1
+	portName        = "microgit"
+	stateRoot       = "/run/microgit"
+	// 1 行の要求の上限。writeb64 で大きなファイルを送るので大きめにする
+	maxRequestBytes = 128 << 20
 )
 
 type request struct {
 	ID     int        `json:"id"`
 	Op     string     `json:"op"`
-	Parent *int       `json:"parent,omitempty"`
+	Layer  string     `json:"layer,omitempty"`
+	Parent string     `json:"parent,omitempty"`
 	Ops    [][]string `json:"ops,omitempty"`
-	Commit *int       `json:"commit,omitempty"`
 	Path   string     `json:"path,omitempty"`
+	Paths  []string   `json:"paths,omitempty"`
 }
 
 type response struct {
@@ -40,15 +46,54 @@ type response struct {
 	Event string `json:"event,omitempty"`
 	OK    bool   `json:"ok"`
 	Error string `json:"error,omitempty"`
+	Code  string `json:"code,omitempty"`
 
-	Kernel       string   `json:"kernel,omitempty"`
-	Agent        string   `json:"agent,omitempty"`
-	Commit       *int     `json:"commit,omitempty"`
-	MountOptions string   `json:"mountOptions,omitempty"`
-	ExdevRenames int      `json:"exdevRenames,omitempty"`
-	Entries      []string `json:"entries,omitempty"`
-	Content      *string  `json:"content,omitempty"`
-	ElapsedUs    int64    `json:"elapsedUs,omitempty"`
+	Protocol     int        `json:"protocol,omitempty"`
+	Kernel       string     `json:"kernel,omitempty"`
+	Agent        string     `json:"agent,omitempty"`
+	MountOptions string     `json:"mountOptions,omitempty"`
+	Layer        string     `json:"layer,omitempty"`
+	Existed      bool       `json:"existed,omitempty"`
+	Depth        int        `json:"depth,omitempty"`
+	ExdevRenames int        `json:"exdevRenames,omitempty"`
+	Entries      []string   `json:"entries,omitempty"`
+	Data         *string    `json:"data,omitempty"`
+	Files        []fileData `json:"files,omitempty"`
+	Layers       *int       `json:"layers,omitempty"`
+	UsedBytes    uint64     `json:"usedBytes,omitempty"`
+	TotalBytes   uint64     `json:"totalBytes,omitempty"`
+	ElapsedUs    int64      `json:"elapsedUs,omitempty"`
+}
+
+// protoError はホストが種類で分岐できるエラー。code は docs/agent-protocol.md の表の記号。
+type protoError struct {
+	code string
+	msg  string
+}
+
+func (e *protoError) Error() string { return e.msg }
+
+// errorCode はエラーを記号にする。システムコールのエラーは errno の名前（ENOENT など）にする。
+func errorCode(err error) string {
+	var pe *protoError
+	if errors.As(err, &pe) {
+		return pe.code
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		if name, ok := errnoNames[errno]; ok {
+			return name
+		}
+		return fmt.Sprintf("ERRNO_%d", int(errno))
+	}
+	return "EINTERNAL"
+}
+
+var errnoNames = map[syscall.Errno]string{
+	syscall.ENOENT: "ENOENT", syscall.EEXIST: "EEXIST", syscall.ENOTDIR: "ENOTDIR", syscall.EISDIR: "EISDIR",
+	syscall.EXDEV: "EXDEV", syscall.ENOSPC: "ENOSPC", syscall.EACCES: "EACCES", syscall.EPERM: "EPERM",
+	syscall.EINVAL: "EINVAL", syscall.ENAMETOOLONG: "ENAMETOOLONG", syscall.ENOTEMPTY: "ENOTEMPTY",
+	syscall.EROFS: "EROFS", syscall.ENOMEM: "ENOMEM",
 }
 
 func logf(format string, args ...any) {
@@ -71,7 +116,7 @@ func main() {
 	if err != nil {
 		fatal(err)
 	}
-	logf("ready kernel=%s port=%s", kernelRelease(), port)
+	logf("ready kernel=%s port=%s protocol=%d", kernelRelease(), port, protocolVersion)
 	for {
 		if err := serve(port, store); err != nil {
 			logf("port error: %v", err)
@@ -88,7 +133,7 @@ func fatal(err error) {
 
 func powerOff() {
 	syscall.Sync()
-	// PSCI の SYSTEM_OFF になり、QEMU も Virtualization.framework も VM を止める
+	// arm64 は PSCI の SYSTEM_OFF、x86_64 は ACPI で電源を切る。QEMU も Virtualization.framework も VM を止める
 	_ = syscall.Reboot(syscall.LINUX_REBOOT_CMD_POWER_OFF)
 	select {}
 }
@@ -146,10 +191,17 @@ func kernelRelease() string {
 }
 
 // runStdio は PID 1 以外で起動されたときの動き。VM を使わずに、同じ命令を stdin/stdout で受ける。
-// Linux ホストでは `unshare -Urm <agent>` で非特権のまま OverlayFS を使える（AD-2 のネイティブ経路の原型）。
-// 層は一時ディレクトリに置き、poweroff か stdin の終わりで片付ける。
+// Linux ホストでは `unshare -Urm <agent>` で非特権のまま OverlayFS を使える（AD-2 のネイティブ経路）。
+// 層は MICROGIT_AGENT_STATE_DIR（無ければ一時ディレクトリ）の下に置き、poweroff か stdin の終わりで片付ける。
 func runStdio() {
-	root, err := os.MkdirTemp("", "microgit-agent-")
+	parent := os.Getenv("MICROGIT_AGENT_STATE_DIR")
+	if parent != "" {
+		if err := os.MkdirAll(parent, 0o700); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	root, err := os.MkdirTemp(parent, "microgit-agent-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -175,20 +227,26 @@ func serve(port string, store *store) error {
 	return serveStream(f, f, store, powerOff)
 }
 
+func hello() response {
+	return response{OK: true, Protocol: protocolVersion, Kernel: kernelRelease(), Agent: agentVersion, MountOptions: overlayOpts}
+}
+
 // serveStream は 1 行 1 JSON の要求を読み、応答を返す。poweroff を受けたら応答してから onPowerOff を呼んで戻る。
 func serveStream(r io.Reader, w io.Writer, store *store, onPowerOff func()) error {
 	enc := json.NewEncoder(w)
-	if err := enc.Encode(response{Event: "ready", OK: true, Kernel: kernelRelease(), Agent: agentVersion}); err != nil {
+	ready := hello()
+	ready.Event = "ready"
+	if err := enc.Encode(ready); err != nil {
 		return err
 	}
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 64*1024), 16*1024*1024)
+	sc.Buffer(make([]byte, 64*1024), maxRequestBytes)
 	for sc.Scan() {
 		var req request
 		var res response
 		start := time.Now()
 		if err := json.Unmarshal(sc.Bytes(), &req); err != nil {
-			res = response{Error: "bad request: " + err.Error()}
+			res = response{Error: "bad request: " + err.Error(), Code: "BAD_REQUEST"}
 		} else {
 			res = handle(store, req)
 			res.ID = req.ID
@@ -208,46 +266,56 @@ func serveStream(r io.Reader, w io.Writer, store *store, onPowerOff func()) erro
 	return nil
 }
 
+func fail(err error) response {
+	return response{Error: err.Error(), Code: errorCode(err)}
+}
+
 func handle(s *store, req request) response {
 	switch req.Op {
 	case "hello":
-		return response{OK: true, Kernel: kernelRelease(), Agent: agentVersion}
+		return hello()
 	case "reset":
 		if err := s.reset(); err != nil {
-			return response{Error: err.Error()}
+			return fail(err)
 		}
 		return response{OK: true}
 	case "commit":
-		parent := -1
-		if req.Parent != nil {
-			parent = *req.Parent
-		}
-		id, info, err := s.commit(parent, req.Ops)
+		info, err := s.commit(req.Layer, req.Parent, req.Ops)
 		if err != nil {
-			return response{Error: err.Error()}
+			return fail(err)
 		}
-		return response{OK: true, Commit: &id, MountOptions: info.mountOptions, ExdevRenames: info.exdevRenames}
+		return response{OK: true, Layer: req.Layer, Existed: info.existed, Depth: info.depth, MountOptions: info.mountOptions, ExdevRenames: info.exdevRenames}
 	case "view":
-		if req.Commit == nil {
-			return response{Error: "view needs commit"}
-		}
-		entries, err := s.view(*req.Commit)
+		entries, err := s.view(req.Layer)
 		if err != nil {
-			return response{Error: err.Error()}
+			return fail(err)
 		}
-		return response{OK: true, Entries: entries}
+		// 空のツリーでは entries が省かれる（omitempty）。ホストは entries が無ければ空として扱う
+		return response{OK: true, Layer: req.Layer, Entries: entries}
 	case "read":
-		if req.Commit == nil || req.Path == "" {
-			return response{Error: "read needs commit and path"}
-		}
-		content, err := s.read(*req.Commit, req.Path)
+		files, err := s.readMany(req.Layer, []string{req.Path})
 		if err != nil {
-			return response{Error: err.Error()}
+			return fail(err)
 		}
-		return response{OK: true, Content: &content}
+		return response{OK: true, Layer: req.Layer, Data: &files[0].Data}
+	case "readMany":
+		files, err := s.readMany(req.Layer, req.Paths)
+		if err != nil {
+			return fail(err)
+		}
+		return response{OK: true, Layer: req.Layer, Files: files}
+	case "inspect":
+		entries, err := s.inspect(req.Layer)
+		if err != nil {
+			return fail(err)
+		}
+		return response{OK: true, Layer: req.Layer, Entries: entries}
+	case "stats":
+		n, used, total := s.stats()
+		return response{OK: true, Layers: &n, UsedBytes: used, TotalBytes: total}
 	case "poweroff":
 		return response{OK: true}
 	default:
-		return response{Error: "unknown op: " + req.Op}
+		return response{Error: "unknown op: " + req.Op, Code: "BAD_REQUEST"}
 	}
 }
