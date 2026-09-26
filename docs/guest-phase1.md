@@ -74,6 +74,9 @@ agent を PID 1 以外で起動すると、同じ命令を stdin/stdout で受�
 | 取得の確認 | `version.env` の sha256 で照合 | sha256sums.asc の PGP 署名はまだ検証していない |
 | 設定 | `allnoconfig` に `microgit.config` を重ねる | 頼んだ `=y` が依存関係で落ちたらビルドを止める。`CONFIG_NET=y` になっても止める |
 | 起動の形 | initramfs を埋め込んだ `Image` 1 ファイル | VZLinuxBootLoader にカーネルだけ渡せば済む。arm64 は圧縮していない `Image` が要る |
+| CPU の種類 | arm64（Apple シリコン）と x86_64（Windows、Intel Mac） | 設定は共通の `microgit.config` に、`microgit-<ARCH>.config` を重ねる。arm64 は汎用 ECAM の PCI ホスト、x86_64 は電源断のための ACPI。x86_64 は `ARCH=x86_64` で make する（`ARCH=x86` の allnoconfig は 32 ビットになる） |
+| agent の Go | 1.27.1 に固定（`version.env` の `GO_VERSION`、#15） | `go.mod` の `go 1.24` は言語の最低版で、ビルドに使う版ではない。CI はこの値で setup-go し、違う版なら止める |
+| 再現性 | 別の出力先に 2 回ビルドし、`Image` と `init` の sha256 が一致するか CI で確かめる（#15） | NFR-6・NFR-7。固定しているものと、まだ固定していないもの（gcc の版）は [学習用 05](./learning/05-reproducible-builds.md) |
 
 **罠：** `allnoconfig` では FUTEX・EPOLL・EVENTFD が切られていて、Go のランタイムが動かない。`microgit.config` で明示的に有効にしている。
 
@@ -87,10 +90,23 @@ agent を PID 1 以外で起動すると、同じ命令を stdin/stdout で受�
 
 ※1 wsl.exe の起動時間を含む。※2 CPU を丸ごとエミュレーションした状態での値。
 
-| サイズ（arm64） | バイト |
-|---|---|
-| Image（カーネル＋initramfs） | 6,950,920 |
-| うち agent | 2,293,908 |
+大きさ（2026-09-26、#15 で Go を 1.27.1 に固定した後。GitHub Actions の成果物の `sizes.txt`）：
+
+| | x86_64 | arm64 |
+|---|---|---|
+| Image（カーネル＋initramfs） | 3,593,216（bzImage。もともと圧縮済み） | 7,606,280（圧縮していない Image。VZLinuxBootLoader が要求する） |
+| Image を gzip -9 した大きさ（VSIX は zip で圧縮されるので、ダウンロードの大きさはこれに近い） | 3,551,442 | 2,928,616 |
+| うち agent（`init`） | 3,059,836 | 2,949,244 |
+
+- Go 1.24 系でビルドしていた初版の arm64 は Image 6,950,920・agent 2,293,908 だった。Go 1.27.1 で agent が約 0.65 MB 大きくなった。サイズを削るなら、まず agent（Go のランタイム）を見る
+- どちらもダウンロードの大きさは 3.6 MB 以下で、NFR-3（一桁 MB）に収まる
+
+**再現性（#15）**：CI で、別の出力先にもう 1 回ビルドし、`Image` と `init` の sha256 が一致することを確かめている。2026-09-26 の実行（run 36231791916）で両方の CPU とも一致した。
+
+| | Image の sha256 | init の sha256 |
+|---|---|---|
+| x86_64 | `7a2a9899…0f40cfe8` | `f275575c…496b66df` |
+| arm64 | `1b561b15…ec934e66` | `0e81a2c2…dca58523` |
 
 確定した事実：
 - 期待値を記録した 6.6（WSL2）とゲストの 6.18.53 で、12 シナリオのビューに差はなかった
@@ -122,7 +138,6 @@ Mac で確かめること：
 |---|---|
 | Boundary Guard（ゲストから返った差分をホストで検証してから反映する） | #16 |
 | ワークスペースとの共有方式と upperdir の置き場所（O-2） | #17 |
-| 制御チャネルの正式な決定（O-3）と命令の形の確定 | #17、#12 |
-| x86_64 のゲスト（Intel Mac、Windows 用） | #15 |
-| ビルドの再現性の確認（同じ入力から同じ `Image` が出るか） | #15 |
+| 制御チャネルの正式な決定（O-3）。命令の形は #12 で v1 に確定済み | #17 |
+| ビルドに使うコンテナイメージの固定（gcc の版まで含めた、時間がたっても同じバイト列） | 未起票（必要になったら） |
 | MicroGit 本体（拡張機能）からの利用 | #14 の Backend Selector の後 |
