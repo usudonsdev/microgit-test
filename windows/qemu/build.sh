@@ -4,7 +4,8 @@
 # 使い方: windows/qemu/build.sh     （Fedora と MinGW の環境で。CI は fedora のコンテナで流す）
 # 必要なもの（Fedora）: gcc make python3 ninja-build bzip2 xz tar diffutils findutils perl
 #                       mingw64-gcc mingw64-glib2 mingw64-pixman mingw64-zlib mingw64-pkg-config
-# 出力: windows/qemu/out/qemu-win/ に qemu-system-x86_64.exe、必要な DLL、share/（ファームウェア）、sizes.txt
+# 出力: windows/qemu/out/qemu-win/ に qemu-system-x86_64.exe、必要な DLL、share/（ファームウェア）、
+#       licenses/（QEMU・SeaBIOS・DLL ごとのライセンスと、DLL の出どころの packages.tsv）。windows/qemu/out/sizes.txt
 #
 # 方針: 対象は x86_64 のエミュレーションだけ（--target-list=x86_64-softmmu）。アクセラレータは WHPX と TCG。
 # GUI・音声・USB・ネットワーク・VNC・SPICE・圧縮形式・暗号ライブラリなど、MicroGit の最小ゲスト
@@ -92,11 +93,43 @@ for fw in bios-256k.bin linuxboot_dma.bin kvmvapic.bin; do
     cp "$src/pc-bios/$fw" "$dest/share/"
 done
 
+# ライセンス（#19、NFR-7）。QEMU は GPLv2、SeaBIOS は LGPLv3、DLL は Fedora のパッケージごとに違う（glib は LGPL など）。
+# DLL の出どころのパッケージは、ビルドしたこのコンテナで rpm に聞く（あとで取り直すと版がずれる）。
+# packages.tsv のソース RPM は、qemu-windows.yml が同じコンテナで取ってきて、ソースの成果物にする
+lic="$dest/licenses"
+mkdir -p "$lic/qemu"
+cp "$src/COPYING" "$src/COPYING.LIB" "$src/LICENSE" "$lic/qemu/"
+if [[ -d "$src/roms/seabios" ]]; then
+    mkdir -p "$lic/seabios"
+    cp "$src/roms/seabios/COPYING" "$src/roms/seabios/COPYING.LESSER" "$lic/seabios/"
+fi
+if command -v rpm >/dev/null; then
+    mapfile -t pkgs < <(for dll in "$dest"/*.dll; do rpm -qf --qf '%{NAME}\n' "$SYSROOT_BIN/$(basename "$dll")"; done | sort -u)
+    {
+        printf 'package\tversion\tlicense\tsource_rpm\tdlls\n'
+        for p in "${pkgs[@]}"; do
+            dlls=$(for dll in "$dest"/*.dll; do
+                [[ "$(rpm -qf --qf '%{NAME}' "$SYSROOT_BIN/$(basename "$dll")")" == "$p" ]] && basename "$dll"
+            done | tr '\n' ' ')
+            rpm -q --qf "%{NAME}\t%{VERSION}-%{RELEASE}\t%{LICENSE}\t%{SOURCERPM}\t${dlls% }\n" "$p"
+            mkdir -p "$lic/$p"
+            while read -r f; do
+                if [[ -f "$f" ]]; then cp "$f" "$lic/$p/"; fi
+            done < <(rpm -qL "$p")
+        done
+    } > "$lic/packages.tsv"
+    cat "$lic/packages.tsv"
+else
+    echo "rpm が無いので DLL のライセンスを集められない（Fedora のコンテナで動かす）" >&2
+    exit 1
+fi
+
 {
     echo "qemu        $QEMU_VERSION (x86_64-softmmu, whpx+tcg, devices=$([[ "${MINIMAL_DEVICES:-1}" == 1 ]] && echo microgit || echo default))"
     echo "exe         $(stat -c %s "$dest/qemu-system-x86_64.exe") bytes"
     echo "dlls        $(ls "$dest"/*.dll 2>/dev/null | wc -l) files, $(cat "$dest"/*.dll 2>/dev/null | wc -c) bytes"
     echo "share       $(cat "$dest"/share/* | wc -c) bytes"
+    echo "licenses    $(du -sb "$dest/licenses" | cut -f1) bytes"
     echo "total       $(du -sb "$dest" | cut -f1) bytes"
     # VSIX は zip なので、利用者がダウンロードする大きさはこれに近い（zip コマンドは Fedora のコンテナに無いので Python で測る）
     echo "zip         $(python3 -c 'import io,os,sys,zipfile

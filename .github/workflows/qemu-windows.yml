@@ -2,6 +2,7 @@ name: QEMU for Windows (minimal)
 
 # MicroGit に同梱する、Windows 用の小さい QEMU をクロスビルドし（#18）、Windows のランナーで最小ゲストを起動して確かめる。
 # できた qemu-win は成果物として残し、Windows 用の VSIX（#19）に入れる。
+# package.yml からも呼ばれる（workflow_call）。同じ実行の中でビルド・テストしたものを VSIX に入れるため。
 on:
   push:
     branches: [feature/kernel-portability]
@@ -13,6 +14,7 @@ on:
       - 'windows/qemu/**'
       - '.github/workflows/qemu-windows.yml'
   workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -49,6 +51,23 @@ jobs:
           path: |
             windows/qemu/out/qemu-win
             windows/qemu/out/sizes.txt
+      # 同梱する DLL（glib は LGPL など）のソース（#19、NFR-7）。ビルドしたこのコンテナに入っている版と同じものを取る
+      # （あとで取り直すと、Fedora の更新で版がずれる）。build.sh が書いた packages.tsv の source_rpm と照らす
+      - name: Source RPMs of the bundled DLLs
+        run: |
+          dnf download --help >/dev/null 2>&1 || dnf install -y 'dnf-command(download)'
+          out=windows/qemu/out/sources
+          mkdir -p "$out"
+          tail -n +2 windows/qemu/out/qemu-win/licenses/packages.tsv | while IFS=$'\t' read -r name version license srpm dlls; do
+            echo "$name $version ($license) -> $srpm : $dlls"
+            dnf download --srpm --destdir "$out" "$(rpm -q "$name")"
+            test -f "$out/$srpm"
+          done
+          ls -l "$out"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: microgit-qemu-win32-x64-sources
+          path: windows/qemu/out/sources
 
   test:
     needs: build

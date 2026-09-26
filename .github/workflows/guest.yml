@@ -25,6 +25,8 @@ on:
       - 'package-lock.json'
       - '.github/workflows/guest.yml'
   workflow_dispatch:
+  # package.yml からも呼ばれる（#19）。同じ実行の中でビルド・テストしたゲストを VSIX に入れるため
+  workflow_call:
 
 jobs:
   # agent の命令の形 v1 の単体テスト（guest/agent/agent_test.go、#12）。本物の OverlayFS を mount するので root で流す。
