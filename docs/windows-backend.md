@@ -21,7 +21,7 @@
 
 S-2 は「Windows の VM バックエンドは、仮想化機能（仮想マシン プラットフォーム／ハイパーバイザー プラットフォーム）が有効な PC でしか使えず、NFR-1 と両立しない」と指摘した。QEMU は同じゲストを **TCG（CPU のエミュレーション）でも動かせる**。TCG は仮想化機能も管理者権限も要らない。
 
-#18 で、同梱用にビルドした QEMU を GitHub の Windows のランナーで **TCG だけ** に固定して動かし、起動 1,822 ms、差分テスト（14 シナリオ・123 回の過去に戻る操作）がすべて Git と一致、平均 44 ms だった（WHPX の自動選択では 36 ms）。仮想化機能が無い PC でも、実用的な速さで動く。
+#18 で、同梱用にビルドした QEMU を GitHub の Windows のランナーで **TCG だけ** に固定して動かし、起動 1.8 秒、差分テスト（14 シナリオ・123 回の過去に戻る操作）がすべて Git と一致、平均 44〜47 ms だった（WHPX の自動選択では 36〜38 ms。2 回の実行の幅）。仮想化機能が無い PC でも、実用的な速さで動く。
 
 - 仮想化機能が有効な PC：WHPX で速く動く
 - 無効な PC：TCG で動く（遅いが、機能は同じ）
@@ -39,7 +39,7 @@ Windows（ホスト）
 ```
 
 - `-accel` を複数並べると、QEMU は前から順に試す。WHPX が使える PC では WHPX が選ばれた（コミット 0.1 ms で判別）
-- **先頭が使えないときの切り替え**：WHPX を無効にした PC は用意できず、GitHub の Windows のランナーでも WHPX が使えた（WHPX だけで起動 1,024 ms）。そこで、Windows に存在しない KVM を先頭に置いた `-accel kvm -accel tcg` で、「前から順に試す」仕組みそのものを確かめた。QEMU は `-accel kvm: invalid accelerator kvm` のあと `falling back to tcg` と出して TCG で起動した（`scripts/test/qemu-accel-fallback.mjs`、手元と CI）。ただしこれは「知らないアクセラレータ」の分岐で、「WHPX の初期化に失敗する」分岐は同じ繰り返しの別の枝で、直接は試していない
+- **先頭が使えないときの切り替え**：WHPX を無効にした PC は用意できず、GitHub の Windows のランナーでも WHPX が使えた（WHPX だけで起動 1,024 ms）。そこで、Windows に存在しない KVM を先頭に置いた `-accel kvm -accel tcg` で、「前から順に試す」仕組みそのものを確かめた。QEMU は `-accel kvm: invalid accelerator kvm` のあと `falling back to tcg` と出して TCG で起動した（`scripts/test/qemu-accel-fallback.mjs`。手元は配布版の QEMU、CI は同梱用のビルドで、CI では 1,878 ms で起動した）。ただしこれは「知らないアクセラレータ」の分岐で、「WHPX の初期化に失敗する」分岐は同じ繰り返しの別の枝で、直接は試していない
 - QEMU が stderr に出したこと（`falling back to tcg` など）は、`MicroGit: Overlay Status` の `launcher stderr` に出る
 - 命令の通り道は名前付きパイプ（[ADR-0006](./adr/0006-windows-named-pipe.md)）。stdio は遅く、大きなデータで中身が壊れた
 - `kernel-irqchip=off` は QEMU の WHPX でよく必要になる設定として付けている。外した場合は試していない
@@ -61,8 +61,8 @@ Windows（ホスト）
 | Windows 11 Home、QEMU 11.1、**WHPX** | 0.63〜0.71 s | 0.10〜0.12 / 0.25 ms | 0.06〜0.07 / 0.10 ms |
 | Windows 11 Home、QEMU 11.1、**TCG** | 1.1〜1.2 s | 1.6〜1.9 / 6.3〜6.5 ms | 1.0〜1.2 / 1.8〜1.9 ms |
 | GitHub Actions（Linux）、QEMU（TCG） | 1.3 s | 2.3 ms | 1.4 ms |
-| **GitHub Actions（windows-latest）、同梱用の QEMU 11.1.1、WHPX**（#18） | 1.02〜1.09 s | 差分テストの過去に戻る操作 平均 36〜37 ms ※2 | |
-| **同上、TCG だけ**（#18） | 1.82 s | 同 平均 44 ms ※2 | |
+| **GitHub Actions（windows-latest）、同梱用の QEMU 11.1.1、WHPX**（#18） | 1.02〜1.14 s | 差分テストの過去に戻る操作 平均 36〜38 ms ※2 | |
+| **同上、TCG だけ**（#18） | 1.82〜1.87 s | 同 平均 44〜47 ms ※2 | |
 | 参考：WSL2 で VM なし（`unshare -Urm`、層は ext4） | 4.2 s ※ | 7.3 / 9.9 ms | 0.3 / 0.5 ms |
 
 ※ wsl.exe の起動時間を含む。※2 ホストから見た 1 回の過去に戻る操作（層の用意・view・Boundary Guard・ワークスペースへの反映）の平均で、上の行のゲストの中の時間とは測っているものが違う。
