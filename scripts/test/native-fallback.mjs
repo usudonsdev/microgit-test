@@ -2,7 +2,7 @@
 /**
  * この環境で、カーネル版を実際に起動できるか（できなければ Node 版に切り替わるか）を確かめる（#14、補足 S-3）。
  *
- * 使い方: npm run compile && node scripts/test/native-fallback.mjs [--expect kernel|fallback] [--reason <正規表現>]
+ * 使い方: npm run compile && node scripts/test/native-fallback.mjs [--expect kernel|fallback] [--reason <正規表現>] [--accel auto|whpx|tcg]
  *   拡張機能と同じ planLaunch（src/kernel/launchers.ts）と BackendSelector を、リポジトリのビルド結果
  *   （guest/out/<arch>/init、guest/out/x86_64/Image など）で動かす。
  *   --expect を付けると、結果が違えば exit 1。--reason は、Node 版に切り替わった理由がこの正規表現に合うかも確かめる。
@@ -27,6 +27,8 @@ const { BackendSelector } = require(path.join(ROOT, 'out', 'kernel', 'backendSel
 const arg = (name) => (process.argv.includes(name) ? process.argv[process.argv.indexOf(name) + 1] : undefined);
 const expect = arg('--expect');
 const reasonPattern = arg('--reason');
+// Windows の QEMU の動かし方（設定 microgit.kernel.accel と同じ）。whpx だけ・tcg だけを試して、どちらが使えるかを確かめる
+const accel = arg('--accel');
 const exists = (p) => fs.existsSync(p);
 const plan = planLaunch({
     platform: process.platform,
@@ -34,7 +36,7 @@ const plan = planLaunch({
     osRelease: os.release(),
     extensionPath: ROOT,
     env: process.env,
-    settings: {},
+    settings: accel ? { accel } : {},
     logDir: os.tmpdir(),
     exists,
     which: (cmd) => findInPath(cmd, process.env, process.platform, exists),

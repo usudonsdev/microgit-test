@@ -191,6 +191,11 @@ export class KernelOverlayBackend {
             `boot=${this.bootMs}ms uptime=${Math.round((Date.now() - this.startedAt) / 1000)}s commitsRecorded=${this.commits}`,
             `layers(host view)=${this.feeder.layerCount}`,
         ];
+        // QEMU などが stderr に出したこと（WHPX が使えず TCG に切り替わった理由など）を最後の数行だけ見せる
+        const stderr = this.agent.lastStderr;
+        if (stderr) {
+            lines.push(`launcher stderr: ${stderr.split(/\r?\n/).slice(-3).join(' / ')}`);
+        }
         if (this.agent.alive) {
             try {
                 const st = await this.agent.call({ op: 'stats' });

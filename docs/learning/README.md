@@ -17,6 +17,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | [05](./05-reproducible-builds.md) | 再現可能なビルド：同じソースから、同じバイト列を | #15 | `guest/build.sh`、`guest/kernel/version.env` |
 | [06](./06-boundary-guard.md) | 信用しない相手からファイルを受け取る（パストラバーサル、.git を狙う攻撃、名前のゆらぎ、半端な状態を残さない） | #16 | `src/boundaryGuard.ts` |
 | [07](./07-backend-selection-and-ipc.md) | 使えるものを選び、だめなら戻る／プロセス間のデータの通り道／差分テストが不具合を見つける | #14 | `src/kernel/`、`scripts/test/` |
+| [08](./08-cross-compiling-qemu.md) | 別の OS 向けにビルドする（クロスコンパイル）／実行ファイルが頼る部品を集める | #18 | `windows/qemu/`、`.github/workflows/qemu-windows.yml` |
 
 各回の構成：
 
