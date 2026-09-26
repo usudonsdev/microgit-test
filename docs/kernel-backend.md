@@ -39,6 +39,8 @@ VS Code 終了  agent（仮想マシン）を止める
 | Windows（x64） | QEMU（WHPX → TCG）、名前付きパイプ | — | `resources/kernel/win32-x64/qemu/…`、`resources/kernel/guest/x86_64/Image` | `guest/.cache/qemu-win/`、`guest/out/x86_64/Image` |
 | macOS（arm64） | `microgit-vm`（Virtualization.framework） | — | `resources/kernel/darwin-arm64/microgit-vm`、`resources/kernel/guest/arm64/Image` | `mac/.build/microgit-vm`、`guest/out/arm64/Image` |
 
+- 「同梱の置き場所」に部品を置いた VSIX は `scripts/package-vsix.mjs` が作る（[release.md](./release.md)、#19）。macOS 用は Mac の実機確認（#17）まで作らず、macOS には部品の無い VSIX が配られる
+- Linux の agent と macOS の `microgit-vm` は、起動の前に実行ビットを確かめ、無ければ付ける（`src/kernel/executable.ts`。VSIX を Windows で作ったり、GitHub Actions の成果物を通したりすると落ちるため）
 - Linux で層を tmpfs に置くのは、カーネル 6.6 以降で `$XDG_RUNTIME_DIR` があるとき（tmpfs の `user.*` xattr が要る。ADR-0005）
 - **起動できそうでも、本当に使えるかは起動して確かめる**。agent の ready を待ち、小さな層を 1 枚作って捨てるところまでやる（probe）。Ubuntu 23.10 以降のように非特権のユーザー名前空間が止められていると、ここで `unshare` が失敗して Node.js 版に切り替わる（補足 S-3。GitHub Actions の Ubuntu 24.04 で CI が毎回確かめる）
 - macOS は実機でまだ確かめていない（#17）。起動に失敗すれば Node.js 版になる
