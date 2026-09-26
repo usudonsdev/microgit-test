@@ -127,6 +127,43 @@ func (s *store) view(id int) ([]string, error) {
 	return entries, err
 }
 
+// maxReadBytes は read で返すファイルの大きさの上限。応答は 1 行の JSON なので大きくしない
+const maxReadBytes = 1 << 20
+
+// read は、あるコミット時点のファイルの中身を返す（view と同じ読み取り専用 mount を使う）。
+func (s *store) read(id int, rel string) (string, error) {
+	if id < 0 || id >= len(s.parents) {
+		return "", fmt.Errorf("unknown commit %d", id)
+	}
+	data := fmt.Sprintf("lowerdir=%s,%s", strings.Join(s.lowerdirs(id), ":"), overlayOpts)
+	if err := syscall.Mount("overlay", s.mnt(), "overlay", syscall.MS_RDONLY, data); err != nil {
+		return "", fmt.Errorf("mount view: %w", err)
+	}
+	content, err := func() (string, error) {
+		p, err := safeJoin(s.mnt(), rel)
+		if err != nil {
+			return "", err
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			return "", err
+		}
+		defer f.Close()
+		b, err := io.ReadAll(io.LimitReader(f, maxReadBytes+1))
+		if err != nil {
+			return "", err
+		}
+		if len(b) > maxReadBytes {
+			return "", fmt.Errorf("%s is larger than %d bytes", rel, maxReadBytes)
+		}
+		return string(b), nil
+	}()
+	if uerr := syscall.Unmount(s.mnt(), 0); uerr != nil && err == nil {
+		err = fmt.Errorf("unmount view: %w", uerr)
+	}
+	return content, err
+}
+
 // safeJoin はシナリオの相対パスを mount 先の絶対パスにする。外へ出るパスは拒否する。
 func safeJoin(root, rel string) (string, error) {
 	if rel == "" || strings.HasPrefix(rel, "/") {

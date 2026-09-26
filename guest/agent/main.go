@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	agentVersion = "0.1.0"
+	agentVersion = "0.2.0"
 	portName     = "microgit"
 	stateRoot    = "/run/microgit"
 )
@@ -32,6 +32,7 @@ type request struct {
 	Parent *int       `json:"parent,omitempty"`
 	Ops    [][]string `json:"ops,omitempty"`
 	Commit *int       `json:"commit,omitempty"`
+	Path   string     `json:"path,omitempty"`
 }
 
 type response struct {
@@ -46,6 +47,7 @@ type response struct {
 	MountOptions string   `json:"mountOptions,omitempty"`
 	ExdevRenames int      `json:"exdevRenames,omitempty"`
 	Entries      []string `json:"entries,omitempty"`
+	Content      *string  `json:"content,omitempty"`
 	ElapsedUs    int64    `json:"elapsedUs,omitempty"`
 }
 
@@ -234,6 +236,15 @@ func handle(s *store, req request) response {
 			return response{Error: err.Error()}
 		}
 		return response{OK: true, Entries: entries}
+	case "read":
+		if req.Commit == nil || req.Path == "" {
+			return response{Error: "read needs commit and path"}
+		}
+		content, err := s.read(*req.Commit, req.Path)
+		if err != nil {
+			return response{Error: err.Error()}
+		}
+		return response{OK: true, Content: &content}
 	case "poweroff":
 		return response{OK: true}
 	default:

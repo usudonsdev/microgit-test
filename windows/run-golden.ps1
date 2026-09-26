@@ -7,9 +7,14 @@
 #
 # -Accel auto は WHPX（Windows ハイパーバイザー プラットフォーム）を先に試し、使えなければ TCG（エミュレーション）で動かす。
 # QEMU は -accel を複数並べると前から順に試す。
+#
+# -Demo を付けると、ゴールデンテストの代わりに scripts/guest/demo.mjs（保存・削除・過去に戻る・枝分かれを 1 段ずつ見せる）を流す。
+# -Step を足すと、デモの各段で Enter を待つ。
 param(
     [ValidateSet('auto', 'whpx', 'tcg')]
-    [string]$Accel = 'auto'
+    [string]$Accel = 'auto',
+    [switch]$Demo,
+    [switch]$Step
 )
 $ErrorActionPreference = 'Stop'
 $Root = Split-Path -Parent $PSScriptRoot
@@ -42,16 +47,23 @@ $accelArgs = switch ($Accel) {
     'tcg' { @('-accel', 'tcg') }
     default { @('-accel', 'whpx,kernel-irqchip=off', '-accel', 'tcg') }
 }
+$consoleLog = Join-Path $Out "console-windows-$Accel.log"
 $qemuArgs = @('-M', 'q35') + $accelArgs + @(
     '-cpu', 'max', '-smp', '1', '-m', '256',
     '-nodefaults', '-display', 'none', '-no-reboot',
     '-kernel', $Image, '-append', 'console=hvc0',
     '-device', 'virtio-serial-pci',
-    '-chardev', "file,id=con,path=$(Join-Path $Out "console-windows-$Accel.log")",
+    '-chardev', "file,id=con,path=$consoleLog",
     '-device', 'virtconsole,chardev=con',
     '-chardev', 'stdio,id=proto,signal=off',
     '-device', 'virtserialport,chardev=proto,name=microgit'
 )
 
-node (Join-Path $Root 'scripts\golden\check-guest.mjs') --json (Join-Path $Out "guest-result-windows-$Accel.json") -- $Qemu @qemuArgs
+if ($Demo) {
+    $demoOpts = @('--console', $consoleLog)
+    if ($Step) { $demoOpts += '--step' }
+    node (Join-Path $Root 'scripts\guest\demo.mjs') @demoOpts -- $Qemu @qemuArgs
+} else {
+    node (Join-Path $Root 'scripts\golden\check-guest.mjs') --json (Join-Path $Out "guest-result-windows-$Accel.json") -- $Qemu @qemuArgs
+}
 exit $LASTEXITCODE

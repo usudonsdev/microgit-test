@@ -11,11 +11,10 @@
  * Node 実装（check-node.mjs）と違い、既知の食い違いは認めない。ゲストは本物のカーネルなので、一致しなければ失敗。
  * あわせて、起動から ready までの時間と、commit / view の所要時間を出す（#17 の計測項目）。
  */
-import { spawn } from 'child_process';
 import fs from 'fs';
 import path from 'path';
-import readline from 'readline';
 import { fileURLToPath } from 'url';
+import { AgentClient } from '../guest/agent-client.mjs';
 import { chainOf, parentOf, scenarios, validateScenarios } from './overlayfs-scenarios.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -50,81 +49,10 @@ function percentile(values, p) {
     return s[Math.min(s.length - 1, Math.floor((p / 100) * s.length))];
 }
 
-class Agent {
-    constructor(child) {
-        this.child = child;
-        this.nextId = 1;
-        this.pending = new Map();
-        this.readyWaiters = [];
-        this.ready = undefined;
-        this.exited = false;
-        readline.createInterface({ input: child.stdout }).on('line', (line) => this.onLine(line));
-        child.on('exit', (code, signal) => {
-            this.exited = true;
-            const err = new Error(`agent process exited (code=${code} signal=${signal})`);
-            for (const { reject } of this.pending.values()) { reject(err); }
-            this.pending.clear();
-            for (const w of this.readyWaiters) { w.reject(err); }
-        });
-    }
-
-    onLine(line) {
-        let msg;
-        try {
-            msg = JSON.parse(line);
-        } catch {
-            // ゲストの起動前に QEMU などが出す文字は無視する
-            return;
-        }
-        if (msg.event === 'ready') {
-            this.ready = msg;
-            for (const w of this.readyWaiters) { w.resolve(msg); }
-            this.readyWaiters = [];
-            return;
-        }
-        const p = this.pending.get(msg.id);
-        if (!p) { return; }
-        this.pending.delete(msg.id);
-        clearTimeout(p.timer);
-        p.resolve(msg);
-    }
-
-    waitReady() {
-        if (this.ready) { return Promise.resolve(this.ready); }
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error(`agent not ready within ${BOOT_TIMEOUT_MS} ms`)), BOOT_TIMEOUT_MS);
-            this.readyWaiters.push({
-                resolve: (m) => { clearTimeout(timer); resolve(m); },
-                reject: (e) => { clearTimeout(timer); reject(e); },
-            });
-        });
-    }
-
-    request(body) {
-        const id = this.nextId++;
-        return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
-                this.pending.delete(id);
-                reject(new Error(`timeout: ${JSON.stringify(body).slice(0, 200)}`));
-            }, REQUEST_TIMEOUT_MS);
-            this.pending.set(id, { resolve, reject, timer });
-            this.child.stdin.write(JSON.stringify({ id, ...body }) + '\n');
-        });
-    }
-
-    async call(body) {
-        const res = await this.request(body);
-        if (!res.ok) { throw new Error(`${body.op} failed: ${res.error}`); }
-        return res;
-    }
-}
-
 async function main() {
     validateScenarios();
     const started = process.hrtime.bigint();
-    const child = spawn(cmd, cmdArgs, { stdio: ['pipe', 'pipe', 'inherit'] });
-    child.on('error', (e) => { console.error(`cannot start ${cmd}: ${e.message}`); process.exit(2); });
-    const agent = new Agent(child);
+    const agent = new AgentClient(cmd, cmdArgs, { bootTimeoutMs: BOOT_TIMEOUT_MS, requestTimeoutMs: REQUEST_TIMEOUT_MS });
 
     const ready = await agent.waitReady();
     const bootMs = Number(process.hrtime.bigint() - started) / 1e6;
@@ -163,12 +91,7 @@ async function main() {
         }
     }
 
-    await agent.call({ op: 'poweroff' }).catch(() => { /* 応答前に止まることがある */ });
-    await new Promise((resolve) => {
-        if (agent.exited) { return resolve(); }
-        const t = setTimeout(() => { child.kill(); resolve(); }, 15000);
-        child.on('exit', () => { clearTimeout(t); resolve(); });
-    });
+    await agent.powerOff();
 
     const summary = {
         kernel: ready.kernel,

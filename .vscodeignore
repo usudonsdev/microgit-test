@@ -32,3 +32,4 @@ scripts/golden/**
 guest/**
 mac/**
 windows/**
+scripts/guest/**
