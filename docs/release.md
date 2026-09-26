@@ -13,12 +13,12 @@
 
 プラットフォーム別の VSIX（`vsce package --target`）を 4 つ作る。Marketplace は、VS Code を動かしている環境に合う VSIX を配り、合うものが無い環境には `--target` を付けずに作った VSIX（universal）を配る（vsce の文書「Platform-specific extensions」）。
 
-| VSIX | 入っている部品 | 大きさ（5.0.0、2026-09-27） | 配られる環境 |
+| VSIX | 入っている部品 | 大きさ（5.0.0、CI の run 36250700521） | 配られる環境 |
 |---|---|---|---|
-| win32-x64 | 同梱の QEMU（#18）、x86_64 の最小ゲスト（カーネル＋agent） | 9,444,838 バイト | Windows x64 |
-| linux-x64 | x86_64 の agent | 1,429,451 バイト | Linux x64 |
-| linux-arm64 | arm64 の agent | 1,303,172 バイト | Linux arm64 |
-| universal | 無し（Node.js 版だけ） | 82,763 バイト | macOS、Windows on Arm、Linux armhf、Alpine など |
+| win32-x64 | 同梱の QEMU（#18）、x86_64 の最小ゲスト（カーネル＋agent） | 9,444,940 バイト | Windows x64 |
+| linux-x64 | x86_64 の agent | 1,429,604 バイト | Linux x64 |
+| linux-arm64 | arm64 の agent | 1,303,331 バイト | Linux arm64 |
+| universal | 無し（Node.js 版だけ） | 82,916 バイト | macOS、Windows on Arm、Linux armhf、Alpine など |
 
 - **macOS**：Mac の実機で確かめるまで（#17）、カーネル版の部品を入れない。`--targets darwin-arm64` を明示すれば作れる
 - **Alpine（musl）**：agent は静的リンクなので動く見込みだが、確かめていない。今は universal が配られる
@@ -36,6 +36,8 @@
 | ubuntu-24.04 | linux-x64 | nodejs | 非特権のユーザー名前空間が止められた環境で、公開版でも Node.js 版になる（NFR-5、補足 S-3） |
 | ubuntu-24.04-arm | linux-arm64 | kernel | arm64 の agent（止めている設定を外して試す） |
 | macos-14 | universal | nodejs | カーネル版の部品が無い VSIX |
+
+結果（run 36250700521、2026-09-27）：5 つとも、期待したバックエンドで拡張機能テスト 3 件が通った。カーネル版の 3 つは、入った拡張機能のフォルダの `resources/kernel/...` から起動していた（Linux の agent は mode 755）。
 
 手元（Windows 11）でも、`MICROGIT_TEST_VSIX=<VSIX> MICROGIT_TEST_EXPECT_BACKEND=kernel node out/test/runTest.js` で同じことができる。
 

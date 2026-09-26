@@ -257,7 +257,7 @@ Phase 0 の受け入れ基準を満たす。見通しにあった「支配的な
 
 見通しのとおり、カーネルより agent（Go のランタイム、約 3 MB）が大きい。
 
-**結果（#19、VSIX の実物）：** 5.0.0 で win32-x64 9,444,838 バイト、linux-x64 1,429,451 バイト、linux-arm64 1,303,172 バイト、universal（部品なし）82,763 バイト。どれも一桁 MB に収まる。10,000,000 バイト以上になると scripts/package-vsix.mjs が警告する（docs/release.md §1）。
+**結果（#19、VSIX の実物）：** 5.0.0 で win32-x64 9,444,940 バイト、linux-x64 1,429,604 バイト、linux-arm64 1,303,331 バイト、universal（部品なし）82,916 バイト（CI の run 36250700521。5 つの環境で VS Code の CLI で入れて確かめたもの）。どれも一桁 MB に収まる。10,000,000 バイト以上になると scripts/package-vsix.mjs が警告する（docs/release.md §1）。
 
 ---
 
