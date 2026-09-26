@@ -10,3 +10,5 @@ node_modules
 guest/out/
 guest/.cache/
 mac/.build/
+windows/qemu/out/
+windows/qemu/.cache/
