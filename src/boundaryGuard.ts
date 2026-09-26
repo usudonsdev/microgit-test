@@ -355,10 +355,9 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
             const sha = cached && cached.size === st.size && cached.mtimeMs === st.mtimeMs ? cached.sha256 : sha256OfFile(abs);
             cache[file.path] = { size: st.size, mtimeMs: st.mtimeMs, sha256: sha };
             if (sha === file.sha256) { unchanged++; continue; }
-        } else if (st?.isDirectory()) {
-            rejected.push({ path: file.path, reason: 'type-conflict', detail: 'a directory exists at this path in the workspace' });
-            continue;
         }
+        // ディレクトリがあっても、ここでは諦めない。中のファイルがすべて消す予定のもの（ディレクトリ p/ → ファイル p）なら、
+        // 消したあとに空のディレクトリを片付けて置ける。書く直前（5.）に決める
         toFetch.push(file);
     }
 
@@ -400,8 +399,17 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
             continue;
         }
         const abs = path.join(opts.workspaceRoot, ...file.path.split('/'));
+        const existing = lstatOrUndefined(abs);
+        if (existing?.isDirectory()) {
+            // 消したあともファイルが残っているディレクトリ（利用者のもの）は消さない
+            if (!directoryHasNoFiles(abs)) {
+                rejected.push({ path: file.path, reason: 'type-conflict', detail: 'a directory with files exists at this path in the workspace' });
+                continue;
+            }
+            removeEmptyDirectories(abs);
+        }
         // 最後の要素がリンクなら、リンク先に書かないようにリンク自体を消してから普通のファイルを置く
-        if (lstatOrUndefined(abs)?.isSymbolicLink()) { fs.unlinkSync(abs); }
+        if (existing?.isSymbolicLink()) { fs.unlinkSync(abs); }
         fs.writeFileSync(abs, data);
         const after = fs.statSync(abs);
         cache[file.path] = { size: after.size, mtimeMs: after.mtimeMs, sha256: file.sha256 };
@@ -409,6 +417,23 @@ export async function syncWorkspaceFromGuest(opts: SyncFromGuestOptions): Promis
     }
 
     return { written, deleted, unchanged, rejected, cache };
+}
+
+/** ディレクトリの中に（下の階層も含めて）ファイルが 1 つも無いか。リンクもファイルとして数える */
+function directoryHasNoFiles(dir: string): boolean {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) { return false; }
+        if (!directoryHasNoFiles(path.join(dir, entry.name))) { return false; }
+    }
+    return true;
+}
+
+/** ディレクトリだけでできた木を、下から消す（directoryHasNoFiles で確かめたあとに呼ぶ） */
+function removeEmptyDirectories(dir: string): void {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        removeEmptyDirectories(path.join(dir, entry.name));
+    }
+    fs.rmdirSync(dir);
 }
 
 /** rel の親ディレクトリを作る。途中に（消されずに残った）ファイルがあれば false */

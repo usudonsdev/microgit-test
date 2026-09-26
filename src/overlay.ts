@@ -940,9 +940,49 @@ export function collectShadowTrackedFiles(
     ));
 }
 
+/** ディレクトリの中に（下の階層も含めて）ファイルが 1 つも無いか。ディレクトリだけなら true */
+function directoryHasNoFiles(dir: string): boolean {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) { return false; }
+        if (!directoryHasNoFiles(path.join(dir, entry.name))) { return false; }
+    }
+    return true;
+}
+
+/**
+ * ワークスペースの rel にファイルを置けるようにする。
+ * - 途中のディレクトリが無ければ作る。途中にファイルがあれば置けない（false）
+ * - rel にディレクトリがあれば、中にファイルが 1 つも無いときだけ消す（ディレクトリ p/ → ファイル p）。
+ *   ファイルが残っていれば（利用者のファイル）置けない（false）
+ */
+function prepareWorkspaceTarget(workspaceRoot: string, rel: string): boolean {
+    const parts = rel.split('/');
+    let current = workspaceRoot;
+    for (const part of parts.slice(0, -1)) {
+        current = path.join(current, part);
+        const st = lstatOrUndefined(current);
+        if (st?.isDirectory()) { continue; }
+        if (st) { return false; }
+        fs.mkdirSync(current);
+    }
+    const target = path.join(workspaceRoot, ...parts);
+    const st = lstatOrUndefined(target);
+    if (st?.isDirectory()) {
+        if (!directoryHasNoFiles(target)) { return false; }
+        removeTree(target);
+    }
+    return true;
+}
+
 /**
  * merge/ の内容をワークスペースへ同期する。
  * size+mtime キャッシュと inode 一致でフルリード比較を避ける。
+ *
+ * 順番は「消す → 書く」（#14 の差分テストで見つけた N-7）。以前は「書く → 消す」で、
+ * ファイル p がディレクトリ p/ に置き換わった時点へ戻ると、まだ残っている古い p のせいで
+ * mkdir が EEXIST になり、例外で止まっていた。逆向き（ディレクトリ p/ → ファイル p）は、
+ * 中身を消したあとの空のディレクトリ p/ が邪魔で書けなかった。
+ * 置けないもの（利用者のファイルやディレクトリとぶつかる）は書かずに conflicts で返す。
  */
 export function syncMergeToWorkspace(
     workspaceRoot: string,
@@ -950,7 +990,7 @@ export function syncMergeToWorkspace(
     isSafeRepoRelativePath: (relPath: string, rootPath: string) => boolean,
     isMicroGitArtifactPath: (filePath: string, rootPath: string) => boolean,
     extraManagedFiles?: string[],
-): { written: string[]; deleted: string[]; skipped: number } {
+): { written: string[]; deleted: string[]; skipped: number; conflicts: string[] } {
     const dag = readDag(paths);
     const mergeFiles = new Set(listFilesRecursive(paths.merge));
     const managed = new Set(dag.managedFiles);
@@ -961,8 +1001,22 @@ export function syncMergeToWorkspace(
     const nextCache: WorkspaceSyncCache = {};
     const written: string[] = [];
     const deleted: string[] = [];
+    const conflicts: string[] = [];
     let skipped = 0;
 
+    // 1. 消す
+    for (const rel of managed) {
+        if (mergeFiles.has(rel)) { continue; }
+        if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
+        const to = path.join(workspaceRoot, ...rel.split('/'));
+        if (isMicroGitArtifactPath(to, workspaceRoot)) { continue; }
+        if (fs.existsSync(to) && fs.statSync(to).isFile()) {
+            fs.unlinkSync(to);
+            deleted.push(rel);
+        }
+    }
+
+    // 2. 書く
     for (const rel of mergeFiles) {
         if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
         const from = path.join(paths.merge, ...rel.split('/'));
@@ -1000,27 +1054,19 @@ export function syncMergeToWorkspace(
             continue;
         }
 
-        fs.mkdirSync(path.dirname(to), { recursive: true });
+        if (!prepareWorkspaceTarget(workspaceRoot, rel)) {
+            conflicts.push(rel);
+            continue;
+        }
         fs.copyFileSync(from, to);
         written.push(rel);
         nextCache[rel] = { size: srcStat.size, mtimeMs: srcStat.mtimeMs };
     }
 
-    for (const rel of managed) {
-        if (mergeFiles.has(rel)) { continue; }
-        if (!isSafeRepoRelativePath(rel, workspaceRoot)) { continue; }
-        const to = path.join(workspaceRoot, ...rel.split('/'));
-        if (isMicroGitArtifactPath(to, workspaceRoot)) { continue; }
-        if (fs.existsSync(to) && fs.statSync(to).isFile()) {
-            fs.unlinkSync(to);
-            deleted.push(rel);
-        }
-    }
-
     dag.managedFiles = Array.from(managed).sort();
     writeDag(paths, dag);
     writeSyncCache(paths, nextCache);
-    return { written, deleted, skipped };
+    return { written, deleted, skipped, conflicts };
 }
 
 export function updateDagCurrent(

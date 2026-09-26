@@ -241,11 +241,12 @@ describe('ワークスペースへの反映', () => {
         }
     });
 
-    test('ファイル p → ディレクトリ p/ は、古い p を消してから置く。利用者のディレクトリは消さない', async () => {
+    test('ファイル p → ディレクトリ p/ は、古い p を消してから置く。利用者のファイルがあるディレクトリは消さない', async () => {
         const ws = tempWorkspace();
         try {
             fs.writeFileSync(path.join(ws.root, 'p'), 'file');
             fs.mkdirSync(path.join(ws.root, 'userdir'));
+            fs.writeFileSync(path.join(ws.root, 'userdir', 'mine.txt'), 'keep');
             const r = await syncWorkspaceFromGuest({
                 workspaceRoot: ws.root,
                 viewLines: ['d\tp', f('p/q.txt', 'Q'), f('userdir', 'now a file')],
@@ -256,7 +257,29 @@ describe('ワークスペースへの反映', () => {
             assert.deepStrictEqual(r.deleted, ['p']);
             assert.deepStrictEqual(r.written, ['p/q.txt']);
             assert.deepStrictEqual(r.rejected.map((x) => [x.path, x.reason]), [['userdir', 'type-conflict']]);
-            assert.ok(fs.statSync(path.join(ws.root, 'userdir')).isDirectory());
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'userdir', 'mine.txt'), 'utf8'), 'keep');
+        } finally {
+            ws.done();
+        }
+    });
+
+    test('ディレクトリ p/ → ファイル p は、中のファイルを消して空になったディレクトリを片付けてから置く（#14 の差分テストで見つけた）', async () => {
+        const ws = tempWorkspace();
+        try {
+            fs.mkdirSync(path.join(ws.root, 'p', 'sub'), { recursive: true });
+            fs.writeFileSync(path.join(ws.root, 'p', 'q.txt'), 'Q');
+            fs.writeFileSync(path.join(ws.root, 'p', 'sub', 'r.txt'), 'R');
+            const r = await syncWorkspaceFromGuest({
+                workspaceRoot: ws.root,
+                viewLines: [f('p', 'now a file')],
+                managedFiles: ['p/q.txt', 'p/sub/r.txt', 'p'],
+                fetchFiles: fetchFrom({ p: 'now a file' }),
+                traits: linux,
+            });
+            assert.deepStrictEqual(r.deleted.sort(), ['p/q.txt', 'p/sub/r.txt']);
+            assert.deepStrictEqual(r.written, ['p']);
+            assert.deepStrictEqual(r.rejected, []);
+            assert.strictEqual(fs.readFileSync(path.join(ws.root, 'p'), 'utf8'), 'now a file');
         } finally {
             ws.done();
         }
