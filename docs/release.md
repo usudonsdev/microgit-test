@@ -13,15 +13,16 @@
 
 プラットフォーム別の VSIX（`vsce package --target`）を 4 つ作る。Marketplace は、VS Code を動かしている環境に合う VSIX を配り、合うものが無い環境には `--target` を付けずに作った VSIX（universal）を配る（vsce の文書「Platform-specific extensions」）。
 
-| VSIX | 入っている部品 | 大きさ（2026-09-26、手元で 4.0.0 として作った値） | 配られる環境 |
+| VSIX | 入っている部品 | 大きさ（5.0.0、2026-09-27） | 配られる環境 |
 |---|---|---|---|
-| win32-x64 | 同梱の QEMU（#18）、x86_64 の最小ゲスト（カーネル＋agent） | 9,350,765 バイト | Windows x64 |
-| linux-x64 | x86_64 の agent | 1,427,631 バイト | Linux x64 |
-| linux-arm64 | arm64 の agent | 1,301,352 バイト | Linux arm64 |
-| universal | 無し（Node.js 版だけ） | 80,943 バイト | macOS、Windows on Arm、Linux armhf、Alpine など |
+| win32-x64 | 同梱の QEMU（#18）、x86_64 の最小ゲスト（カーネル＋agent） | 9,444,838 バイト | Windows x64 |
+| linux-x64 | x86_64 の agent | 1,429,451 バイト | Linux x64 |
+| linux-arm64 | arm64 の agent | 1,303,172 バイト | Linux arm64 |
+| universal | 無し（Node.js 版だけ） | 82,763 バイト | macOS、Windows on Arm、Linux armhf、Alpine など |
 
 - **macOS**：Mac の実機で確かめるまで（#17）、カーネル版の部品を入れない。`--targets darwin-arm64` を明示すれば作れる
 - **Alpine（musl）**：agent は静的リンクなので動く見込みだが、確かめていない。今は universal が配られる
+- 中身の確認：`package-vsix.mjs` は、できた VSIX の中身を「入ってよいものの一覧」と照らし、同梱の部品を除いた中身が 1 MB を超えたら止める。最初は「入っていてはいけないもの」の一覧で確かめていて、CI で成果物を落としたフォルダ（`artifacts/`、GCC のソース RPM など）が VSIX に入り、142〜150 MB になったのを見逃した
 - 実行ビット：VSIX は Linux で作る（Windows で作ると実行ビットが落ちる）。拡張機能も、起動の前に実行ビットを確かめて無ければ付ける（`src/kernel/executable.ts`）
 
 ## 2. どう確かめているか

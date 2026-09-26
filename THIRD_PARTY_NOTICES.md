@@ -35,6 +35,10 @@ MicroGit 5.0.0 をビルドしたとき（2026-09-26）に `rpm` が記録した
 | libwinpthread-1.dll | mingw64-winpthreads | 13.0.0-3.fc44 | BSD-3-Clause AND MIT AND LicenseRef-Fedora-Public-Domain | mingw-winpthreads-13.0.0-3.fc44.src.rpm |
 | zlib1.dll | mingw64-zlib | 1.3.2-1.fc44 | Zlib | mingw-zlib-1.3.2-1.fc44.src.rpm |
 
+The Fedora packages of zlib and win-iconv install no license files, so there is no folder for them under `licenses/`. The zlib license does not require the notice to be reproduced in binary distributions, and win-iconv is in the public domain.
+
+Fedora の zlib と win-iconv のパッケージにはライセンスの文書が入っていないので、`licenses/` の下にそのフォルダは無い。zlib のライセンスはバイナリの配布で表示を求めず、win-iconv はパブリックドメイン。
+
 `packages.tsv` is written at build time by `windows/qemu/build.sh`, which asks `rpm` which Fedora package each DLL came from, and records the version, license and source RPM of that package.
 
 `packages.tsv` は `windows/qemu/build.sh`（`collect-licenses.sh`）がビルドのときに書く。DLL ごとに、どの Fedora のパッケージから来たかを `rpm` に聞き、そのパッケージの版・ライセンス・ソース RPM を記録している。QEMU を作り直すと版が変わりうるので、正しいのは各 VSIX の中の `packages.tsv`。
