@@ -14,6 +14,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | [02](./02-git-objects-and-layer-format.md) | Git のオブジェクトと出力形式／whiteout の表し方／不具合の切り分け方 | #21 | `src/overlay.ts`、`scripts/overlay-smoke.mjs` |
 | [03](./03-source-of-truth-and-durability.md) | 正本とキャッシュ／「保存した」はどこまで確かか（fsync）／コンパクション | #11 | `src/durability.ts`、`docs/adr/` |
 | [04](./04-protocol-and-mount-options.md) | 2 つのプログラムのあいだの約束（プロトコル）／mount オプション／層の中を覗く | #12 | `guest/agent/`、`docs/agent-protocol.md` |
+| [05](./05-reproducible-builds.md) | 再現可能なビルド：同じソースから、同じバイト列を | #15 | `guest/build.sh`、`guest/kernel/version.env` |
 
 各回の構成：
 
