@@ -58,19 +58,9 @@ upper も lower も `/run/microgit`（tmpfs）に置いている。電源を切�
 
 `userxattr` で tmpfs を upper にするには tmpfs の `user.*` xattr（6.6 以降）が要るので、`CONFIG_TMPFS_XATTR` を有効にしている。
 
-### 2.5 命令の形（#12 で正式に決めるまでの仮）
+### 2.5 命令の形
 
-1 行 1 JSON。`id` を付けて送ると、同じ `id` で答える。ゲストが準備できると `{"event":"ready",...}` を送ってくる。
-
-| op | 引数 | 答え |
-|---|---|---|
-| `hello` | — | `kernel`、`agent` |
-| `reset` | — | 層をすべて捨てる |
-| `commit` | `parent`（-1 で最初）、`ops`（シナリオと同じ形） | `commit`（番号）、`mountOptions`、`exdevRenames` |
-| `view` | `commit` | `entries`（ゴールデンテストと同じ 1 行 1 エントリ） |
-| `poweroff` | — | 答えてから電源を切る |
-
-どの答えにも、ゲストの中での所要時間 `elapsedUs` が付く。
+#12 で v1 に確定した（2026-09-26）。仕様は [agent-protocol.md](./agent-protocol.md)。初版（v0）からの主な変更は、層の名前をホストが決める文字列にした（Git のコミットのハッシュを使うため）、中身を base64 でやりとりする（バイナリのファイル）、`readMany`・`inspect`・`stats` を足した、失敗に種類の記号（`code`）を付けた、の 4 つ。
 
 ### 2.6 VM なしのモード
 

@@ -281,7 +281,8 @@ Cursor と Claude Code を併用する。チャット履歴・コンテキスト
 - 卒業研究レビュー: [build-verification-engine-review.md](./build-verification-engine-review.md) — エンジン設計の前提を実装と突き合わせた指摘。R-01/R-02 は本ドキュメント §2（記録単位）の変更を要求する
 - 卒業研究（ビルド検証エンジン）: [build-verification-engine.md](./build-verification-engine.md) — マイクロコミット単位のビルド成否の悉皆記録と、ブランチ追従 CoW キャッシュ。MicroGit 本体とは別プロセス（同 §14 に接続点）
 - 次期メジャー（カーネル機能ポータブル化）: [要件定義書](./microgit-kernel-feature-portability-requirements.md) / [初期設計](./microgit-kernel-feature-portability-design.md) / [補足（レビュー所見 S-1〜S-13）](./microgit-kernel-feature-portability-supplement.md) — Linux カーネルの OverlayFS を Linux 以外のホストにも提供する部品。現行の Node.js 仮想 Overlay はフォールバックとして残す。作業ブランチ `feature/kernel-portability`、進捗は Issue #8（Epic）
-- 設計判断の記録（ADR）: [adr/README.md](./adr/README.md) — 1 件 1 ファイル。ADR-0001 正本は shadow の Git、ADR-0002 永続性の既定は電源断でも失わない、ADR-0003 層キャッシュのコンパクション
+- 設計判断の記録（ADR）: [adr/README.md](./adr/README.md) — 1 件 1 ファイル。ADR-0001 正本は shadow の Git、ADR-0002 永続性の既定は電源断でも失わない、ADR-0003 層キャッシュのコンパクション、ADR-0004 保存ごとに層を作る、ADR-0005 mount オプションの固定
+- agent の命令の形（プロトコル v1）: [agent-protocol.md](./agent-protocol.md) — ホストと最小ゲスト（または VM なしの agent）のあいだの約束
 - 学習用ドキュメント（技術ごとの解説）: [learning/README.md](./learning/README.md) — Issue ごとに使った技術（ゴールデンテスト、名前空間など）を、実装と対応づけて解説する
 - OverlayFS ゴールデンテスト: [overlayfs-golden-test.md](./overlayfs-golden-test.md) — カーネルの OverlayFS を正解として記録し、Node 実装と突き合わせる（Issue #10）。現行 Node 実装の食い違い N-1〜N-5 の分類あり
 - 実装の解説（はじめに読む）: [kernel-portability-walkthrough.md](./kernel-portability-walkthrough.md) — 保存 1 回のあいだにホストとゲストで何が起きるかを順に追う。デモの動かし方と用語集つき

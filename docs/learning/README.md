@@ -13,6 +13,7 @@ Issue を 1 つ進めるたびに、その Issue で使った技術の解説を 
 | [01](./01-golden-testing-and-namespaces.md) | テストの正解をどこから持ってくるか／名前空間で安全に mount する | #10 | `scripts/golden/`、`.github/workflows/ci.yml` |
 | [02](./02-git-objects-and-layer-format.md) | Git のオブジェクトと出力形式／whiteout の表し方／不具合の切り分け方 | #21 | `src/overlay.ts`、`scripts/overlay-smoke.mjs` |
 | [03](./03-source-of-truth-and-durability.md) | 正本とキャッシュ／「保存した」はどこまで確かか（fsync）／コンパクション | #11 | `src/durability.ts`、`docs/adr/` |
+| [04](./04-protocol-and-mount-options.md) | 2 つのプログラムのあいだの約束（プロトコル）／mount オプション／層の中を覗く | #12 | `guest/agent/`、`docs/agent-protocol.md` |
 
 各回の構成：
 
