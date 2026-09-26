@@ -1,6 +1,7 @@
 import { execFileSync } from 'child_process';
 import { createHash } from 'crypto';
 import * as fs from 'fs';
+import * as os from 'os';
 import * as path from 'path';
 import * as vscode from 'vscode';
 import {
@@ -13,11 +14,14 @@ import {
     ensureOverlayDirs,
     exportCommitLayer,
     isOverlayCheckoutEnabled,
+    readDag,
     removeFromWriteLayer,
     syncMergeToWorkspace,
     updateDagCurrent,
     writeLayerDir,
 } from './overlay';
+import { BackendSelector, parseBackendSetting } from './kernel/backendSelector';
+import { findInPath, KernelSettings, planLaunch } from './kernel/launchers';
 import {
     ensureShadowRepoForBranch,
     fetchMicrogitRefsFromOrigin,
@@ -55,6 +59,43 @@ let lastEnqueuedSave: { absPath: string; contentHash: string } | undefined;
 let publishTimer: ReturnType<typeof setTimeout> | undefined;
 let pendingPublishJob: { rootPath: string; branch: string } | undefined;
 const PUBLISH_DEBOUNCE_MS = 1500;
+/** Overlay のバックエンド（カーネル版か Node.js 版か）を選ぶ（#14、docs/kernel-backend.md） */
+let backendSelector: BackendSelector | undefined;
+
+/**
+ * 設定から Backend Selector を作る。カーネル版は必要になるまで起動しない（最初の保存か、過去に戻る操作のとき）。
+ * 設定 microgit.overlayBackend: auto（既定）/ kernel / nodejs。microgit.kernel.*: QEMU の場所・動かし方・メモリ。
+ */
+function createBackendSelector(context: vscode.ExtensionContext): BackendSelector {
+    const cfg = vscode.workspace.getConfiguration();
+    const accel = cfg.get<string>('microgit.kernel.accel');
+    const settings: KernelSettings = {
+        qemuPath: cfg.get<string>('microgit.kernel.qemuPath') || undefined,
+        accel: accel === 'whpx' || accel === 'tcg' ? accel : 'auto',
+        memoryMb: cfg.get<number>('microgit.kernel.memoryMb') || 256,
+    };
+    const logDir = context.logUri.fsPath;
+    return new BackendSelector({
+        setting: parseBackendSetting(cfg.get('microgit.overlayBackend')),
+        plan: () => {
+            fs.mkdirSync(logDir, { recursive: true });
+            return planLaunch({
+                platform: process.platform,
+                arch: process.arch,
+                osRelease: os.release(),
+                extensionPath: context.extensionPath,
+                env: process.env,
+                settings,
+                logDir,
+                exists: (p) => fs.existsSync(p),
+                which: (cmd) => findInPath(cmd, process.env, process.platform, (p) => fs.existsSync(p)),
+            });
+        },
+        tryRunGit,
+        log: (message, level) => ExtensionLogger.log(message, level),
+        notify: (message) => { void vscode.window.showWarningMessage(`[MicroGit] ${message}`); },
+    });
+}
 
 /**
  * 拡張機能がアクティブになった際に呼び出されるエントリポイント
@@ -72,8 +113,18 @@ export function activate(context: vscode.ExtensionContext) {
                 setDurability(vscode.workspace.getConfiguration().get('microgit.durability'));
                 ExtensionLogger.log(`マイクロ履歴の永続性を変更: ${getDurability()}`);
             }
+            if (e.affectsConfiguration('microgit.overlayBackend') || e.affectsConfiguration('microgit.kernel')) {
+                // 設定が変わったら作り直す。動いていたカーネル版は止める（次に必要になったとき新しい設定で起動する）
+                const old = backendSelector;
+                backendSelector = createBackendSelector(context);
+                void old?.dispose();
+                ExtensionLogger.log(`Overlay のバックエンドの設定を変更: ${backendSelector.setting}`);
+            }
         })
     );
+
+    backendSelector = createBackendSelector(context);
+    ExtensionLogger.log(`Overlay のバックエンド: ${backendSelector.setting}（カーネル版は必要になったときに起動する）`);
 
     statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 1000);
     statusBarItem.name = 'MicroGit';
@@ -354,12 +405,16 @@ export function activate(context: vscode.ExtensionContext) {
 
     context.subscriptions.push(
         vscode.commands.registerCommand('microgit.overlayStatus', async () => {
+            const kernelText = backendSelector ? await backendSelector.describe() : 'overlayBackend=?';
+            const active = backendSelector?.readyKernel() ? 'kernel' : 'nodejs';
             const text =
-                `${describeOverlayEngine()}\n` +
+                `active=${active}\n` +
                 `useOverlayCheckout=${useOverlayCheckout()}\n` +
-                `note=kernel/fuse mount は使わず Node.js のみで Overlay 意味論を実装`;
+                `durability=${getDurability()}\n\n` +
+                `[kernel backend]\n${kernelText}\n\n` +
+                `[nodejs backend（フォールバック）]\n${describeOverlayEngine()}`;
             ExtensionLogger.log(`[Overlay status]\n${text}`);
-            vscode.window.showInformationMessage(`[MicroGit Overlay] nodejs materialize`);
+            vscode.window.showInformationMessage(`[MicroGit Overlay] ${active}`);
             await vscode.window.showTextDocument(
                 await vscode.workspace.openTextDocument({ content: text, language: 'text' }),
                 { preview: true }
@@ -810,8 +865,66 @@ function consumeAiPending(rootPath: string, relativeFilePath: string): boolean {
     }
 }
 
+/** 反映で中身が変わった文書を、開いているエディタで読み直す */
+async function revertTouchedDocuments(rootPath: string, touched: Set<string>): Promise<void> {
+    for (const doc of vscode.workspace.textDocuments) {
+        const rel = toPosixRelative(rootPath, doc.uri.fsPath);
+        if (!rel || !touched.has(rel)) { continue; }
+        try {
+            await vscode.commands.executeCommand('workbench.action.files.revert', doc.uri);
+        } catch { /* ignore */ }
+    }
+}
+
 /**
- * Node.js Overlay: computePath → checkoutLayers（ユーザー空間 materialize）→ workspace 同期
+ * カーネル版で targetHash の時点にワークスペースを合わせる（#14）。
+ * 使えた・終わったら true。使えない・失敗したら false（呼び出し側が Node 版で続ける）。
+ * ゲストから受け取ったものは Boundary Guard（src/boundaryGuard.ts）を通してから書く。
+ */
+async function applyKernelCheckout(rootPath: string, targetHash: string): Promise<boolean> {
+    const selector = backendSelector;
+    if (!selector?.wantsKernel) { return false; }
+    const kernel = await selector.ensureKernel();
+    if (!kernel) { return false; }
+
+    const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
+    const paths = ensureOverlayDirs(rootPath);
+    // 消してよいのは MicroGit が記録したことのあるパスだけ（Node 版の syncMergeToWorkspace と同じ範囲）
+    const managed = new Set([...readDag(paths).managedFiles, ...collectShadowTrackedFiles(shadowRepoPath, tryRunGit)]);
+    try {
+        const result = await kernel.checkout({
+            workspaceRoot: rootPath,
+            shadowRepo: shadowRepoPath,
+            target: targetHash,
+            managedFiles: managed,
+            cacheFile: path.join(paths.meta, 'kernel-sync-cache.json'),
+        });
+        updateDagCurrent(paths, targetHash, currentMicroBranchTag);
+        await revertTouchedDocuments(rootPath, new Set([...result.written, ...result.deleted]));
+        const t = result.timings;
+        ExtensionLogger.log(
+            `[Overlay/kernel] ${targetHash.substring(0, 7)} ${result.ensure.snapshot ? '写しの層' : '差分の層'} depth=${result.ensure.depth} ` +
+            `written=${result.written.length} deleted=${result.deleted.length} unchanged=${result.unchanged} rejected=${result.rejected.length} ` +
+            `ensure=${t.ensureMs}ms view=${t.viewMs}ms sync=${t.syncMs}ms total=${t.totalMs}ms`
+        );
+        if (result.rejected.length) {
+            for (const r of result.rejected) {
+                ExtensionLogger.log(`[Overlay/kernel] 反映しなかった: ${r.path}（${r.reason}${r.detail ? `: ${r.detail}` : ''}）`, 'WARN');
+            }
+            void vscode.window.showWarningMessage(
+                `[MicroGit] ${result.rejected.length} 件のファイルは、この PC では安全に書けないため反映しませんでした（詳細は MicroGit Output）`
+            );
+        }
+        return true;
+    } catch (err: unknown) {
+        selector.reportError(err);
+        return false;
+    }
+}
+
+/**
+ * computePath → checkoutLayers（ユーザー空間 materialize）→ workspace 同期（Node.js 版）。
+ * カーネル版が使えるときは、先にカーネル版で試す（applyKernelCheckout）。
  */
 async function applyOverlayCheckout(
     rootPath: string,
@@ -820,6 +933,14 @@ async function applyOverlayCheckout(
 ): Promise<void> {
     const shadowRepoPath = path.join(rootPath, '.microgit_shadow');
     const syncWorkspace = options?.syncWorkspace !== false;
+
+    if (syncWorkspace) {
+        if (await applyKernelCheckout(rootPath, targetHash)) { return; }
+    } else if (backendSelector?.readyKernel()) {
+        // 保存の直後: カーネル版は保存のときに層を作ってある（runShadowCommit）。ワークスペースはもう保存した内容なので何もしない
+        return;
+    }
+
     const paths = ensureOverlayDirs(rootPath);
     writeLayerDir(paths, currentMicroBranchTag);
 
@@ -840,7 +961,7 @@ async function applyOverlayCheckout(
         return;
     }
 
-    const { written, deleted, skipped } = syncMergeToWorkspace(
+    const { written, deleted, skipped, conflicts } = syncMergeToWorkspace(
         rootPath,
         paths,
         isSafeRepoRelativePath,
@@ -848,21 +969,17 @@ async function applyOverlayCheckout(
         collectShadowTrackedFiles(shadowRepoPath, tryRunGit),
     );
 
-    const touched = new Set([...written, ...deleted]);
-    for (const doc of vscode.workspace.textDocuments) {
-        const rel = toPosixRelative(rootPath, doc.uri.fsPath);
-        if (!rel || !touched.has(rel)) { continue; }
-        try {
-            await vscode.commands.executeCommand('workbench.action.files.revert', doc.uri);
-        } catch { /* ignore */ }
-    }
+    await revertTouchedDocuments(rootPath, new Set([...written, ...deleted]));
 
     ExtensionLogger.log(
         `[Overlay/${result.backend}] method=${result.method} applied=${result.appliedLayers} ` +
         `path=${layerPath.map((h) => h.substring(0, 7)).join('→')} ` +
-        `write=${currentMicroBranchTag} written=${written.length} deleted=${deleted.length} skipped=${skipped} ` +
+        `write=${currentMicroBranchTag} written=${written.length} deleted=${deleted.length} skipped=${skipped} conflicts=${conflicts.length} ` +
         `(${describeOverlayEngine()})`
     );
+    for (const rel of conflicts) {
+        ExtensionLogger.log(`[Overlay/nodejs] 反映しなかった（利用者のファイルやディレクトリとぶつかる）: ${rel}`, 'WARN');
+    }
 }
 
 async function sharedTimeTravel(target: string, rootPath: string): Promise<void> {
@@ -1147,7 +1264,28 @@ async function runShadowCommit(
             runGit(shadowRepoPath, ['tag', '-f', currentMicroBranchTag, commitHash]);
         }
 
-        if (useOverlayCheckout()) {
+        // カーネル版（#14）: 動いていれば、このコミットの層を agent に作らせる（次に戻るときに速い）。
+        // まだ起動していなければ裏で起動を始め、今回は Node 版の層を書き出す。
+        // カーネル版で層を作れたら、Node 版の層とビューは作らない（あとで Node 版に切り替わったら ensureLayerExists が作る）
+        let recordedByKernel = false;
+        if (useOverlayCheckout() && backendSelector?.wantsKernel) {
+            const kernel = backendSelector.readyKernel();
+            if (!kernel) {
+                void backendSelector.ensureKernel();
+            } else {
+                try {
+                    const r = await kernel.recordCommit(shadowRepoPath, commitHash);
+                    recordedByKernel = true;
+                    ExtensionLogger.log(
+                        `[Overlay/kernel] 層を記録: ${commitHash.substring(0, 7)} ${r.snapshot ? '写しの層' : '差分の層'} ` +
+                        `depth=${r.depth} bytes=${r.bytes} ${r.elapsedMs}ms (${relativeFilePath})`
+                    );
+                } catch (kernelErr: unknown) {
+                    backendSelector.reportError(kernelErr);
+                }
+            }
+        }
+        if (useOverlayCheckout() && !recordedByKernel) {
             try {
                 const overlayPaths = ensureOverlayDirs(mainRepoPath);
                 exportCommitLayer(
@@ -1316,6 +1454,9 @@ function getMicroGraphData(shadowRepoPath: string): Array<{
     }
 }
 
-export function deactivate() {
-    // Node.js Overlay は mount しないため tear-down 不要
+export function deactivate(): Thenable<void> | undefined {
+    // カーネル版の仮想マシン（または VM なしの agent）を止める。Node.js 版は mount しないので片付け不要
+    const selector = backendSelector;
+    backendSelector = undefined;
+    return selector?.dispose();
 }

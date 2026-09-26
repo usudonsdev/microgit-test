@@ -102,6 +102,48 @@
           ],
           "default": "power",
           "description": "マイクロ履歴をどこまで確実にディスクへ書くか（docs/adr/0002-durability.md）"
+        },
+        "microgit.overlayBackend": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "kernel",
+            "nodejs"
+          ],
+          "enumDescriptions": [
+            "カーネルの OverlayFS（Linux は仮想マシンなし、Windows は QEMU、macOS は Virtualization.framework）を試し、使えなければ Node.js 版を使う",
+            "カーネルの OverlayFS を使う。使えなければ Node.js 版にして、理由を知らせる",
+            "Node.js 版だけを使う（仮想マシンも agent も起動しない）"
+          ],
+          "default": "auto",
+          "description": "Overlay checkout のバックエンド（docs/kernel-backend.md）。カーネル版は最初の保存か、過去に戻る操作のときに起動する"
+        },
+        "microgit.kernel.qemuPath": {
+          "type": "string",
+          "default": "",
+          "description": "Windows でカーネル版に使う qemu-system-x86_64.exe の場所。空なら同梱のものを使う"
+        },
+        "microgit.kernel.accel": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "whpx",
+            "tcg"
+          ],
+          "enumDescriptions": [
+            "Windows ハイパーバイザー プラットフォーム（WHPX）を試し、使えなければ CPU のエミュレーション（TCG）",
+            "WHPX だけ（速い。Windows の機能で「Windows ハイパーバイザー プラットフォーム」を有効にする必要がある）",
+            "TCG だけ（遅いが、仮想化機能も管理者権限も要らない）"
+          ],
+          "default": "auto",
+          "description": "Windows の QEMU で最小ゲストを動かす方法"
+        },
+        "microgit.kernel.memoryMb": {
+          "type": "number",
+          "default": 256,
+          "minimum": 128,
+          "maximum": 4096,
+          "description": "最小ゲスト（仮想マシン）のメモリ（MB）。層はゲストのメモリに置くので、記録するファイルが大きい場合は増やす"
         }
       }
     }
